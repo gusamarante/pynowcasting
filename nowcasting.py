@@ -75,6 +75,8 @@ class BVARGLP(object):
                               residual covariance matrix (default)
         """
 
+        self.data = data
+        self.lags = lags
         self.hyperpriors = hyperpriors
         self.vc = vc
         self.pos = pos
@@ -91,8 +93,13 @@ class BVARGLP(object):
         self.mcmcfcast = mcmcfcast
         self.mcmcstorecoef = mcmcstorecoef
 
+        self.TT = data.shape[0]  # Time-series sample size without lags
+        self.n = data.shape[1]  # Number of variables in the VAR
+        self.k = self.n * self.lags + 1  # Number of coefficients on each equation
+
         self._set_priors()
         self._set_bounds()
+        self._regressor_matrix()
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
@@ -142,6 +149,28 @@ class BVARGLP(object):
         df_bounds.loc['miu', 'max'] = 50
 
         self.bounds = df_bounds
+
+    def _regressor_matrix(self):
+        # Constructs the matrix of regressors
+        n = self.n
+        lags = self.lags
+        data = self.data
+
+        x = np.zeros((self.TT, self.k))
+        x[:, 0] = 1
+
+        for i in range(1, self.lags + 1):
+            x[:, 1 + (i - 1) * n: i * n + 1] = data.shift(i).values
+
+        y0 = data.iloc[:lags, :].mean().values
+        x = x[lags:, :]
+        y = data.values[lags:, :]
+
+        self.T = y.shape[0]
+
+        # PAREI AQUI - LINHA 43 DO MATLAB
+
+        a = 1
 
     @staticmethod
     def _gamma_coef(mode, sd):
