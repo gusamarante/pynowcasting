@@ -67,6 +67,6 @@ for var in transform_dict.keys():
 df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
-bvar = BVARGLP(data=df_trans, lags=5)
+bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1)
 
 a = 1

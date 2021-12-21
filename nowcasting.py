@@ -195,26 +195,41 @@ class BVARGLP(object):
         PSI_min = self.SS / 100
         PSI_max = self.SS * 100
 
-        # Transforming inputs to unbounded
+        # Transforming inputs to unbounded and builds the initial guess
+        x0 = np.array([-np.log((lambda_max - lambda0) / (lambda0 - lambda_min))])
+
         if self.mnpsi == 1:
             inpsi = -np.log((PSI_max - psi0) / (psi0 - PSI_min))
+            x0 = np.concatenate((x0, inpsi))
         else:
+            # TODO this looks redundant
             inpsi = None
 
-        if self.mnalpha == 1:
-            inalpha = -np.log((alpha_max - alpha0) / (alpha0 - alpha_min))
-        else:
-            inalpha = None
-
         if self.sur == 1:
-            intheta = -np.log((theta_max - theta0) / (theta0 - theta_min))
+            intheta = np.array([-np.log((theta_max - theta0) / (theta0 - theta_min))])
+            x0 = np.concatenate((x0, intheta))
         else:
+            # TODO this looks redundant
             intheta = None
 
         if self.noc == 1:
-            inmiu = -np.log((miu_max - miu0) / (miu0 - miu_min))
+            inmiu = np.array([-np.log((miu_max - miu0) / (miu0 - miu_min))])
+            x0 = np.concatenate((x0, inmiu))
         else:
+            # TODO this looks redundant
             inmiu = None
+
+        if self.mnalpha == 1:
+            inalpha = np.array([-np.log((alpha_max - alpha0) / (alpha0 - alpha_min))])
+            x0 = np.concatenate((x0, inalpha))
+        else:
+            # TODO this looks redundant
+            inalpha = None
+
+        # initial guess for the inverse Hessian
+        H0 = 10 * np.eye(len(x0))
+
+        # Maximization of the posterior of the hyperparameters
 
     @staticmethod
     def _gamma_coef(mode, sd):
