@@ -9,7 +9,7 @@ class BVARGLP(object):
                  lags,
                  hyperpriors=1,  # TODO Set Boolean
                  vc=10e6,
-                 pos=None,
+                 pos=None,  # TODO Implement based on the variable names
                  mnpsi=1,  # TODO Set Boolean
                  mnalpha=0,  # TODO Set Boolean
                  sur=1,  # TODO Set Boolean
@@ -100,6 +100,8 @@ class BVARGLP(object):
         self._set_priors()
         self._set_bounds()
         self._regressor_matrix()
+        self._minnesota_prior_mean()
+        self._minimization()
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
@@ -166,14 +168,60 @@ class BVARGLP(object):
         x = x[lags:, :]
         y = data.values[lags:, :]
 
-        self.T = y.shape[0]
+        self.T = y.shape[0]  # Sample size after lags
 
-        # PAREI AQUI - LINHA 43 DO MATLAB
+        # OLS for AR(1) residual variance of each equation
+        SS = np.zeros(self.n)
 
-        a = 1
+        for i in range(self.n):
+            y_reg = y[1:, i]
+            x_reg = np.hstack((np.ones((self.T - 1, 1)), y[:-1, i].reshape((-1, 1))))
+            ar1 = OLS1(y_reg, x_reg)
+            SS[i] = ar1.sig2hatols
+
+        # TODO PAREI AQUI - MATLAB LINHA 62
+
+    def _minnesota_prior_mean(self):
+        b = np.zeros((self.k, self.n))
+        diagb = np.ones(self.n)
+        # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
+        # TODO diagb(pos) = 0
+        b[1:self.n+1, :] = np.diag(diagb)
+        self.b = b
+
+    def _minimization(self):
+        # Starting values for the minimization
+        lambda0 = 0.2  # std of MN prior
+        theta0 = 1  # std of SUR prior
+        miu0 = 1  # std NOC prior
+        alpha0 = 2  # lag-decaying parameter of the MN prior
 
     @staticmethod
     def _gamma_coef(mode, sd):
         k = (2 + mode ** 2 / sd ** 2 + np.sqrt((4 + mode ** 2 / sd ** 2) * mode ** 2 / sd ** 2)) / 2
         theta = np.sqrt(sd ** 2 / k)
         return k, theta
+
+
+class OLS1(object):
+    # TODO Documentation (Simple OLS regression)
+
+    def __init__(self, y, x):
+        self.x = x
+        self.y = y
+
+        nobsy = y.shape[0]
+        nobs, nvar = x.shape
+        assert nobsy == nobs, 'x and y must have the same number of lines'
+
+        self.nobs = nobs
+        self.nvar = nvar
+
+        self.XX = x.T @ x
+        self.invXX = np.linalg.inv(self.XX)
+        self.bhatols = self.invXX @ (x.T @ y)
+        self.yhatols = x @ self.bhatols
+        self.resols = y - self.yhatols
+        self.sig2hatols = (self.resols.T @ self.resols) / (nobs - nvar)
+        self.sigbhatols = self.sig2hatols * self.invXX
+        self.r2 = np.var(self.yhatols) / np.var(y)
