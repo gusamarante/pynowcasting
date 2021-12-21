@@ -24,7 +24,7 @@ class BVARGLP(object):
                  mcmcstorecoef=1):  # TODO Set Boolean
         # TODO rewrite documentation according to variable usage
         """
-        This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012)
+        This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP
         :param hyperpriors: 0 = no priors on hyperparameters
                             1 = reference priors on hyperparameters (default)
                             [NOTE: hyperpriors on psi calibrated for data expressed in
@@ -98,8 +98,7 @@ class BVARGLP(object):
         self.k = self.n * self.lags + 1  # Number of coefficients on each equation
 
         self._set_priors()
-        self._set_bounds()
-        self._regressor_matrix()
+        self._regressor_matrix_ols()
         self._minnesota_prior_mean()
         self._minimization()
 
@@ -133,27 +132,10 @@ class BVARGLP(object):
         else:
             self.priorcoef = None
 
-    def _set_bounds(self):
-        # Bounds for the maximization step
-        df_bounds = pd.DataFrame(index=['lambda', 'alpha', 'theta', 'miu'],
-                                 columns=['min', 'max'])
-
-        df_bounds.loc['lambda', 'min'] = 0.0001
-        df_bounds.loc['lambda', 'max'] = 5
-
-        df_bounds.loc['alpha', 'min'] = 0.1
-        df_bounds.loc['alpha', 'max'] = 5
-
-        df_bounds.loc['theta', 'min'] = 0.0001
-        df_bounds.loc['theta', 'max'] = 50
-
-        df_bounds.loc['miu', 'min'] = 0.0001
-        df_bounds.loc['miu', 'max'] = 50
-
-        self.bounds = df_bounds
-
-    def _regressor_matrix(self):
+    def _regressor_matrix_ols(self):
+        # TODO purpose is to construct the SS matrix
         # Constructs the matrix of regressors
+
         n = self.n
         lags = self.lags
         data = self.data
@@ -179,7 +161,7 @@ class BVARGLP(object):
             ar1 = OLS1(y_reg, x_reg)
             SS[i] = ar1.sig2hatols
 
-        # TODO PAREI AQUI - MATLAB LINHA 62
+        self.SS = SS
 
     def _minnesota_prior_mean(self):
         b = np.zeros((self.k, self.n))
@@ -195,6 +177,44 @@ class BVARGLP(object):
         theta0 = 1  # std of SUR prior
         miu0 = 1  # std NOC prior
         alpha0 = 2  # lag-decaying parameter of the MN prior
+        psi0 = self.SS
+
+        # Bounds for the minimization step
+        lambda_min = 0.0001
+        lambda_max = 5
+
+        alpha_min = 0.1
+        alpha_max = 5
+
+        theta_min = 0.0001
+        theta_max = 50
+
+        miu_min = 0.0001
+        miu_max = 50
+
+        PSI_min = self.SS / 100
+        PSI_max = self.SS * 100
+
+        # Transforming inputs to unbounded
+        if self.mnpsi == 1:
+            inpsi = -np.log((PSI_max - psi0) / (psi0 - PSI_min))
+        else:
+            inpsi = None
+
+        if self.mnalpha == 1:
+            inalpha = -np.log((alpha_max - alpha0) / (alpha0 - alpha_min))
+        else:
+            inalpha = None
+
+        if self.sur == 1:
+            intheta = -np.log((theta_max - theta0) / (theta0 - theta_min))
+        else:
+            intheta = None
+
+        if self.noc == 1:
+            inmiu = -np.log((miu_max - miu0) / (miu0 - miu_min))
+        else:
+            inmiu = None
 
     @staticmethod
     def _gamma_coef(mode, sd):
