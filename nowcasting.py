@@ -173,54 +173,54 @@ class BVARGLP(object):
 
     def _minimization(self):
         # Starting values for the minimization
-        lambda0 = 0.2  # std of MN prior
-        theta0 = 1  # std of SUR prior
-        miu0 = 1  # std NOC prior
-        alpha0 = 2  # lag-decaying parameter of the MN prior
-        psi0 = self.SS
+        self.lambda0 = 0.2  # std of MN prior
+        self.theta0 = 1  # std of SUR prior
+        self.miu0 = 1  # std NOC prior
+        self.alpha0 = 2  # lag-decaying parameter of the MN prior
+        self.psi0 = self.SS
 
         # Bounds for the minimization step
-        lambda_min = 0.0001
-        lambda_max = 5
+        self.lambda_min = 0.0001
+        self.lambda_max = 5
 
-        alpha_min = 0.1
-        alpha_max = 5
+        self.alpha_min = 0.1
+        self.alpha_max = 5
 
-        theta_min = 0.0001
-        theta_max = 50
+        self.theta_min = 0.0001
+        self.theta_max = 50
 
-        miu_min = 0.0001
-        miu_max = 50
+        self.miu_min = 0.0001
+        self.miu_max = 50
 
-        PSI_min = self.SS / 100
-        PSI_max = self.SS * 100
+        self.psi_min = self.SS / 100
+        self.psi_max = self.SS * 100
 
         # Transforming inputs to unbounded and builds the initial guess
-        x0 = np.array([-np.log((lambda_max - lambda0) / (lambda0 - lambda_min))])
+        x0 = np.array([-np.log((self.lambda_max - self.lambda0) / (self.lambda0 - self.lambda_min))])
 
         if self.mnpsi == 1:
-            inpsi = -np.log((PSI_max - psi0) / (psi0 - PSI_min))
+            inpsi = -np.log((self.psi_max - self.psi0) / (self.psi0 - self.psi_min))
             x0 = np.concatenate((x0, inpsi))
         else:
             # TODO this looks redundant
             inpsi = None
 
         if self.sur == 1:
-            intheta = np.array([-np.log((theta_max - theta0) / (theta0 - theta_min))])
+            intheta = np.array([-np.log((self.theta_max - self.theta0) / (self.theta0 - self.theta_min))])
             x0 = np.concatenate((x0, intheta))
         else:
             # TODO this looks redundant
             intheta = None
 
         if self.noc == 1:
-            inmiu = np.array([-np.log((miu_max - miu0) / (miu0 - miu_min))])
+            inmiu = np.array([-np.log((self.miu_max - self.miu0) / (self.miu0 - self.miu_min))])
             x0 = np.concatenate((x0, inmiu))
         else:
             # TODO this looks redundant
             inmiu = None
 
         if self.mnalpha == 1:
-            inalpha = np.array([-np.log((alpha_max - alpha0) / (alpha0 - alpha_min))])
+            inalpha = np.array([-np.log((self.alpha_max - self.alpha0) / (self.alpha0 - self.alpha_min))])
             x0 = np.concatenate((x0, inalpha))
         else:
             # TODO this looks redundant
@@ -229,6 +229,7 @@ class BVARGLP(object):
         # initial guess for the inverse Hessian
         H0 = 10 * np.eye(len(x0))
 
+        # TODO parei aqui - MATLAB linha 99 - função logMLVAR_formin
         # Maximization of the posterior of the hyperparameters
 
     @staticmethod
@@ -236,6 +237,61 @@ class BVARGLP(object):
         k = (2 + mode ** 2 / sd ** 2 + np.sqrt((4 + mode ** 2 / sd ** 2) * mode ** 2 / sd ** 2)) / 2
         theta = np.sqrt(sd ** 2 / k)
         return k, theta
+
+    def _logmlvar_formin(self, par):
+        """
+        This function computes the log-posterior (or the logML if hyperpriors=0),
+        the posterior mode of the coefficients and the covariance matrix of the
+        residuals of the BVAR of Giannone, Lenza and Primiceri (2012)
+        """
+
+        # hyperparameters
+        lambda_ = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-par[0]))
+        d = self.n + 2
+
+        if self.mnpsi == 0:
+            psi = self.SS * (d - self.n - 1)
+
+            if self.sur == 1:
+                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[1]))
+
+                if self.noc == 1:
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[2]))
+
+            else:  # if self.sur == 0
+                if self.noc == 1:
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[1]))
+
+        else:  # self.mnpsi == 1
+            psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-par[1:self.n + 1]))  # TODO check the size of par
+
+            if self.sur == 1:
+                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[self.n + 2]))  # TODO check the size of par
+
+                if self.noc == 1:
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 3]))  # TODO check the size of par
+
+            else:  # if self.sur == 0
+                if self.noc == 1:
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 2]))
+
+        if self.mnalpha == 0:
+            alpha = 2
+        else:  # self.mnalpha == 1
+            alpha = self.alpha_min + (self.alpha_max - self.alpha_min) / (1 + np.exp(-par[-1]))
+
+        # Setting up the priors
+        omega = np.zeros(self.k)
+        omega[0] = self.vc
+
+        for i in range(1, self.lags):
+            omega[1 + (i - 1) * self.n: 1 + i * self.n] = \
+                (d - self.n - 1) * (lambda_ ** 2) * (1 / (i ** alpha)) / psi
+
+        # Prior scale matrix for the covariance of the shocks
+        PSI = np.diag(psi)
+
+        # TODO linha 61 do matlab
 
 
 class OLS1(object):
