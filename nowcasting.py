@@ -163,7 +163,6 @@ class BVARGLP(object):
 
         self.SS = SS
 
-
     def _minimization(self):
         # Starting values for the minimization
         self.lambda0 = 0.2  # std of MN prior
