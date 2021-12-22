@@ -383,12 +383,27 @@ class BVARGLP(object):
 
             # normalizing constant
             norm = - self.n * Td * np.log(np.pi) / 2
-            logML = logML + sum(gammaln((Td + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
-            logML = logML - self.T * sum(np.log(psi)) / 2
-            logML = logML - self.n * sum(np.log(eigaaa)) / 2
-            logML = logML - (self.T + d) * sum(np.log(eigbbb)) / 2
+            norm = norm + sum(gammaln((Td + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+            norm = norm - Td * sum(np.log(psi)) / 2
+            norm = norm - self.n * sum(np.log(eigaaa)) / 2
+            norm = norm - (self.T + d) * sum(np.log(eigbbb)) / 2
+            logML = logML - norm
+
+        if self.hyperpriors == 1:
+            pass
+            # TODO linha 141 do MATLAB (logMLVAR)
 
         a = 1
+
+    @staticmethod
+    def _log_gammma_pdf(x, k, theta):
+        r = (k - 1) * np.log(x) - x / theta - k * np.log(theta) - gammaln(k)
+        return r
+
+    @staticmethod
+    def _log_invgammma_to_pdf(x, alpha, beta):
+        r = alpha * np.log(beta) - (alpha + 1) * np.log(x) - beta *(1 / x) - gammaln(alpha)
+        return r
 
 
 class OLS1(object):
