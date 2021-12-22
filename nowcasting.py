@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.special import gammaln
 import pandas as pd
 
 
@@ -99,7 +100,6 @@ class BVARGLP(object):
 
         self._set_priors()
         self._regressor_matrix_ols()
-        self._minnesota_prior_mean()
         self._minimization()
 
     def _set_priors(self):
@@ -146,30 +146,23 @@ class BVARGLP(object):
         for i in range(1, self.lags + 1):
             x[:, 1 + (i - 1) * n: i * n + 1] = data.shift(i).values
 
-        y0 = data.iloc[:lags, :].mean().values
-        x = x[lags:, :]
-        y = data.values[lags:, :]
+        self.y0 = data.iloc[:lags, :].mean().values
+        self.x = x[lags:, :]
+        self.y = data.values[lags:, :]
 
-        self.T = y.shape[0]  # Sample size after lags
+        self.T = self.y.shape[0]  # Sample size after lags
 
         # OLS for AR(1) residual variance of each equation
         SS = np.zeros(self.n)
 
         for i in range(self.n):
-            y_reg = y[1:, i]
-            x_reg = np.hstack((np.ones((self.T - 1, 1)), y[:-1, i].reshape((-1, 1))))
+            y_reg = self.y[1:, i]
+            x_reg = np.hstack((np.ones((self.T - 1, 1)), self.y[:-1, i].reshape((-1, 1))))
             ar1 = OLS1(y_reg, x_reg)
             SS[i] = ar1.sig2hatols
 
         self.SS = SS
 
-    def _minnesota_prior_mean(self):
-        b = np.zeros((self.k, self.n))
-        diagb = np.ones(self.n)
-        # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
-        # TODO diagb(pos) = 0
-        b[1:self.n+1, :] = np.diag(diagb)
-        self.b = b
 
     def _minimization(self):
         # Starting values for the minimization
@@ -284,14 +277,118 @@ class BVARGLP(object):
         omega = np.zeros(self.k)
         omega[0] = self.vc
 
-        for i in range(1, self.lags):
+        for i in range(1, self.lags + 1):
             omega[1 + (i - 1) * self.n: 1 + i * self.n] = \
                 (d - self.n - 1) * (lambda_ ** 2) * (1 / (i ** alpha)) / psi
 
         # Prior scale matrix for the covariance of the shocks
         PSI = np.diag(psi)
 
-        # TODO linha 61 do matlab
+        # dummy observations if sur and / or noc = 1
+        Td = 0
+        xdsur = np.array([]).reshape((0, self.k))
+        ydsur = np.array([]).reshape((0, self.n))
+
+        xdnoc = np.array([]).reshape((0, self.k))
+        ydnoc = np.array([]).reshape((0, self.n))
+
+        if self.sur == 1:
+            xdsur = (1 / theta) * np.tile(self.y0, (1, self.lags))
+            xdsur = np.hstack((np.array([[1 / theta]]), xdsur))
+
+            ydsur = (1 / theta) * self.y0
+
+            self.y = np.vstack((self.y, ydsur))
+            self.x = np.vstack((self.x, xdsur))
+
+            Td = Td + 1
+
+        if self.noc == 1:
+
+            ydnoc = (1 / miu) * np.diag(self.y0)
+            # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
+            # TODO ydnoc(pos, pos) = 0;
+
+            xdnoc = (1 / miu) * np.tile(np.diag(self.y0), (1, self.lags))
+            xdnoc = np.hstack((np.zeros((self.n, 1)), xdnoc))
+
+            self.y = np.vstack((self.y, ydnoc))
+            self.x = np.vstack((self.x, xdnoc))
+
+            Td = Td + self.n
+
+        self.T = self.T + Td
+
+        # ===== OUTPUT ===== #
+        # Minnesota prior mean
+        b = np.zeros((self.k, self.n))
+        diagb = np.ones(self.n)
+        # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
+        # TODO diagb(pos) = 0
+        b[1:self.n + 1, :] = np.diag(diagb)
+        self.b = b
+
+        # posterior mode of the VAR coefficients
+        matA = self.x.T @ self.x + np.diag(1 / omega)
+        matB = self.x.T @ self.y + np.diag(1 / omega) @ b
+        betahat = np.linalg.solve(matA, matB)  # np.solve runs more efficiently that inverting a gigantic matrix
+
+        # VAR residuals
+        epshat = self.y - self.x @ betahat
+
+        # Posterior mode of the covariance matrix
+        sigmahat = (epshat.T @ epshat + PSI + (betahat - b).T @ np.diag(1 / omega) @ (betahat - b))
+        sigmahat = sigmahat / (self.T + d + self.n + 1)
+
+        # logML
+        aaa = np.diag(np.sqrt(omega)) @ self.x.T @ self.x @ np.diag(np.sqrt(omega))
+        bbb = np.diag(1 / np.sqrt(psi)) @ (epshat.T @ epshat + (betahat - b).T @ np.diag(1/omega) @
+                                           (betahat-b)) @ np.diag(1 / np.sqrt(psi))
+
+        eigaaa = np.linalg.eig(aaa)[0].real
+        eigaaa[eigaaa < 1e-12] = 0
+        eigaaa = eigaaa + 1
+
+        eigbbb = np.linalg.eig(bbb)[0].real
+        eigbbb[eigbbb < 1e-12] = 0
+        eigbbb = eigbbb + 1
+
+        logML = - self.n * self.T * np.log(np.pi) / 2
+        logML = logML + sum(gammaln((self.T + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+        logML = logML - self.T * sum(np.log(psi)) / 2
+        logML = logML - self.n * sum(np.log(eigaaa)) / 2
+        logML = logML - (self.T + d) * sum(np.log(eigbbb)) / 2
+
+        if self.sur == 1 or self.noc == 1:
+            yd = np.vstack((ydsur, ydnoc))
+            xd = np.vstack((xdsur, xdnoc))
+
+            # prior mode of the VAR coefficients
+            betahatd = self.b
+
+            # VAR residuals at the prior mode
+            epshatd = yd - xd @ betahatd
+
+            aaa = np.diag(np.sqrt(omega)) @ xd.T @ xd @ np.diag(np.sqrt(omega))
+            bbb = np.diag(1 / np.sqrt(psi)) @ (epshatd.T @ epshatd + (betahatd - b).T @ np.diag(1 / omega) @
+                                               (betahatd - b)) @ np.diag(1 / np.sqrt(psi))
+
+            eigaaa = np.linalg.eig(aaa)[0].real
+            eigaaa[eigaaa < 1e-12] = 0
+            eigaaa = eigaaa + 1
+
+            eigbbb = np.linalg.eig(bbb)[0].real
+            eigbbb[eigbbb < 1e-12] = 0
+            eigbbb = eigbbb + 1
+
+            # normalizing constant
+            norm = - self.n * Td * np.log(np.pi) / 2
+            logML = logML + sum(gammaln((Td + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+            logML = logML - self.T * sum(np.log(psi)) / 2
+            logML = logML - self.n * sum(np.log(eigaaa)) / 2
+            logML = logML - (self.T + d) * sum(np.log(eigbbb)) / 2
+
+        a = 1
 
 
 class OLS1(object):
