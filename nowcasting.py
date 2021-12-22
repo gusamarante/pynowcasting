@@ -390,10 +390,27 @@ class BVARGLP(object):
             logML = logML - norm
 
         if self.hyperpriors == 1:
-            pass
-            # TODO linha 141 do MATLAB (logMLVAR)
+            logML = logML + self._log_gammma_pdf(x=lambda_,
+                                                 k=self.priorcoef.loc['lambda', 'r_k'],
+                                                 theta=self.priorcoef.loc['lambda', 'r_theta'])
 
-        a = 1
+            if self.sur == 1:
+                logML = logML + self._log_gammma_pdf(x=theta,
+                                                     k=self.priorcoef.loc['theta', 'r_k'],
+                                                     theta=self.priorcoef.loc['theta', 'r_theta'])
+
+            if self.noc == 1:
+                logML = logML + self._log_gammma_pdf(x=miu,
+                                                     k=self.priorcoef.loc['miu', 'r_k'],
+                                                     theta=self.priorcoef.loc['miu', 'r_theta'])
+
+            if self.mnpsi == 1:
+                toadd = self._log_invgammma_to_pdf(x=psi / (d - self.n - 1),
+                                                   alpha=self.priorcoef.loc['alpha', 'PSI'],
+                                                   beta=self.priorcoef.loc['beta', 'PSI'])
+                logML = logML + sum(toadd)
+
+        return -logML
 
     @staticmethod
     def _log_gammma_pdf(x, k, theta):
