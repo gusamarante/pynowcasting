@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.special import gammaln
+from scipy.optimize import minimize
 import pandas as pd
 
 
@@ -222,7 +223,13 @@ class BVARGLP(object):
         H0 = 10 * np.eye(len(x0))
 
         # TODO parei aqui - MATLAB linha 99 - função logMLVAR_formin
-        # Maximization of the posterior of the hyperparameters
+        # Minimization of the negative of the posterior of the hyperparameters
+        def myfun(xxx):
+            return self._logmlvar_formin(xxx)
+
+        res = minimize(myfun, x0=x0, tol=1e-8, options={'maxiter': 1000, 'disp': True},  # TODO 1e-16 and disp False
+                       method='Powell')
+        print(res)
 
     @staticmethod
     def _gamma_coef(mode, sd):
