@@ -68,4 +68,4 @@ df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
 bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1, verbose=True)
-print(bvar.itct)
+

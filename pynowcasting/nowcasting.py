@@ -104,11 +104,8 @@ class BVARGLP(object):
 
         self._set_priors()
         self._regressor_matrix_ols()
-        self.log_post, self.betahat, self.sigmahat, self.itct, self.lamb = self._minimization()
-        self.theta = self.theta_max
-        self.miu = self.miu_max
-
-        # TODO parei aqui - linha 116 do bvarGLP / main / unconditionalforecasts / LargeBVAR
+        self._minimization()
+        self._forecasts()
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
@@ -243,16 +240,54 @@ class BVARGLP(object):
                                                          nit=1000,
                                                          verbose=self.verbose)
 
-        log_post, betahat, sigmahat = self._logmlvar_formin(xh)
-        lamb = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-xh[0]))
+        self.itct = itct
+        self.log_post, self.betahat, self.sigmahat = self._logmlvar_formin(xh)
+        self.lamb = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-xh[0]))
+        self.theta = self.theta_max
+        self.miu = self.miu_max
 
-        return log_post, betahat, sigmahat, itct, lamb
+        if self.mnpsi == 1:
+            # diagonal elements of the scale matrix of the IW prior on the residual variance
+            self.psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-xh[1:self.n + 1]))  # TODO this needs to be checked
 
-    @staticmethod
-    def _gamma_coef(mode, sd):
-        k = (2 + mode ** 2 / sd ** 2 + np.sqrt((4 + mode ** 2 / sd ** 2) * mode ** 2 / sd ** 2)) / 2
-        theta = np.sqrt(sd ** 2 / k)
-        return k, theta
+            if self.sur == 1:
+                # std of sur prior at the peak
+                self.theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-xh[self.n + 1]))
+
+                if self.noc == 1:
+                    # std of noc prior at the peak
+                    self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[self.n + 2]))
+
+            else:  # self.sur == 0
+                if self.noc == 1:
+                    # std of noc prior at the peak
+                    self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[self.n + 1]))
+
+        else:  # self.mnpsi == 0
+            self.psi = self.SS
+
+            if self.sur == 1:
+                # std of sur prior at the peak
+                self.theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-xh[1]))
+
+                if self.noc == 1:
+                    # std of noc prior at the peak
+                    self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[2]))
+
+            else:  # self.sur == 0
+                if self.noc == 1:
+                    # std of noc prior at the peak
+                    self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[1]))
+
+        if self.mnalpha == 0:
+            self.alpha = 2
+        else:
+            # Lag-decaying parameter of the MN prior
+            self.alpha = self.alpha_min + (self.alpha_max - self.alpha_min) / (1 + np.exp(-xh[-1]))
+
+    def _forecasts(self):
+        pass
+        # TODO parei aqui - linha 149 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _logmlvar_formin(self, par):
         """
@@ -438,6 +473,12 @@ class BVARGLP(object):
                 logML = logML + sum(toadd)
 
         return logML, betahat, sigmahat
+
+    @staticmethod
+    def _gamma_coef(mode, sd):
+        k = (2 + mode ** 2 / sd ** 2 + np.sqrt((4 + mode ** 2 / sd ** 2) * mode ** 2 / sd ** 2)) / 2
+        theta = np.sqrt(sd ** 2 / k)
+        return k, theta
 
     @staticmethod
     def _log_gammma_pdf(x, k, theta):
