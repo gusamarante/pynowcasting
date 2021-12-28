@@ -1,11 +1,11 @@
-from nowcasting import BVARGLP
+from pynowcasting import BVARGLP
 from scipy.io import loadmat
 import pandas as pd
 import numpy as np
 
 # ===== USER DEFINED PARAMETERS =====
 show_charts = True
-estimateBVAR = True # TODO If False, load previosly estimated parameters
+estimateBVAR = True  # TODO If False, load previosly estimated parameters
 unconditional_forecasts = True  # TODO If True, run the unconditional forecasts
 vint = '2020-01-31'
 
@@ -67,6 +67,7 @@ for var in transform_dict.keys():
 df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
-bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1)
+bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1, verbose=True)
+# print(bvar._logmlvar_formin(np.array([-2.9796, -4.4687])))
 # print(bvar._logmlvar_formin(np.array([-2.9796, -4.4687])))
 a = 1
