@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import gammaln
-from scipy.optimize import minimize
+from pynowcasting.pycsminwel import csminwel
 import pandas as pd
 
 
@@ -23,7 +23,8 @@ class BVARGLP(object):
                  ndrawsdiscard=10000,  # TODO set to 'ndraws/2'
                  mcmcconst=1,
                  mcmcfcast=1,  # TODO Set Boolean
-                 mcmcstorecoef=1):  # TODO Set Boolean
+                 mcmcstorecoef=1,  # TODO Set Boolean
+                 verbose=False):
         # TODO rewrite documentation according to variable usage
         """
         This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP
@@ -75,6 +76,7 @@ class BVARGLP(object):
                               coefficients and residual covariance matrix
                               1 = stores the MCMC draws of the VAR coefficients and
                               residual covariance matrix (default)
+        :param verbose: Prints relevant information during the estimation.
         """
 
         self.data = data
@@ -94,6 +96,7 @@ class BVARGLP(object):
         self.mcmccosnt = mcmcconst
         self.mcmcfcast = mcmcfcast
         self.mcmcstorecoef = mcmcstorecoef
+        self.verbose = verbose
 
         self.TT = data.shape[0]  # Time-series sample size without lags
         self.n = data.shape[1]  # Number of variables in the VAR
@@ -222,14 +225,20 @@ class BVARGLP(object):
         # initial guess for the inverse Hessian
         H0 = 10 * np.eye(len(x0))
 
-        # TODO parei aqui - MATLAB linha 99 - função logMLVAR_formin
         # Minimization of the negative of the posterior of the hyperparameters
         def myfun(xxx):
             return self._logmlvar_formin(xxx)
 
-        res = minimize(myfun, x0=x0, tol=1e-8, options={'maxiter': 1000, 'disp': True},  # TODO 1e-16 and disp False
-                       method='Powell')
-        print(res)
+        # Optimization
+        fh, xh, gh, h, itct, fcount, retcodeh = csminwel(fcn=myfun,
+                                                         x0=x0,
+                                                         h0=H0,
+                                                         grad=None,
+                                                         crit=1e-16,
+                                                         nit=1000,
+                                                         verbose=self.verbose)
+
+        # TODO parei aqui, linha 105 do MATLAB bvarGLP - main - largebvar - uncodiutional forecasts
 
     @staticmethod
     def _gamma_coef(mode, sd):
@@ -298,14 +307,18 @@ class BVARGLP(object):
         xdnoc = np.array([]).reshape((0, self.k))
         ydnoc = np.array([]).reshape((0, self.n))
 
+        y = self.y.copy()
+        x = self.x.copy()
+        T = self.T
+
         if self.sur == 1:
             xdsur = (1 / theta) * np.tile(self.y0, (1, self.lags))
             xdsur = np.hstack((np.array([[1 / theta]]), xdsur))
 
             ydsur = (1 / theta) * self.y0
 
-            self.y = np.vstack((self.y, ydsur))
-            self.x = np.vstack((self.x, xdsur))
+            y = np.vstack((y, ydsur))
+            x = np.vstack((x, xdsur))
 
             Td = Td + 1
 
@@ -318,12 +331,12 @@ class BVARGLP(object):
             xdnoc = (1 / miu) * np.tile(np.diag(self.y0), (1, self.lags))
             xdnoc = np.hstack((np.zeros((self.n, 1)), xdnoc))
 
-            self.y = np.vstack((self.y, ydnoc))
-            self.x = np.vstack((self.x, xdnoc))
+            y = np.vstack((y, ydnoc))
+            x = np.vstack((x, xdnoc))
 
             Td = Td + self.n
 
-        self.T = self.T + Td
+        T = T + Td
 
         # ===== OUTPUT ===== #
         # Minnesota prior mean
@@ -332,22 +345,22 @@ class BVARGLP(object):
         # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
         # TODO diagb(pos) = 0
         b[1:self.n + 1, :] = np.diag(diagb)
-        self.b = b
+        # self.b = b
 
         # posterior mode of the VAR coefficients
-        matA = self.x.T @ self.x + np.diag(1 / omega)
-        matB = self.x.T @ self.y + np.diag(1 / omega) @ b
+        matA = x.T @ x + np.diag(1 / omega)
+        matB = x.T @ y + np.diag(1 / omega) @ b
         betahat = np.linalg.solve(matA, matB)  # np.solve runs more efficiently that inverting a gigantic matrix
 
         # VAR residuals
-        epshat = self.y - self.x @ betahat
+        epshat = y - x @ betahat
 
         # Posterior mode of the covariance matrix
         sigmahat = (epshat.T @ epshat + PSI + (betahat - b).T @ np.diag(1 / omega) @ (betahat - b))
-        sigmahat = sigmahat / (self.T + d + self.n + 1)
+        sigmahat = sigmahat / (T + d + self.n + 1)
 
         # logML
-        aaa = np.diag(np.sqrt(omega)) @ self.x.T @ self.x @ np.diag(np.sqrt(omega))
+        aaa = np.diag(np.sqrt(omega)) @ x.T @ x @ np.diag(np.sqrt(omega))
         bbb = np.diag(1 / np.sqrt(psi)) @ (epshat.T @ epshat + (betahat - b).T @ np.diag(1/omega) @
                                            (betahat-b)) @ np.diag(1 / np.sqrt(psi))
 
@@ -359,18 +372,18 @@ class BVARGLP(object):
         eigbbb[eigbbb < 1e-12] = 0
         eigbbb = eigbbb + 1
 
-        logML = - self.n * self.T * np.log(np.pi) / 2
-        logML = logML + sum(gammaln((self.T + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
-        logML = logML - self.T * sum(np.log(psi)) / 2
+        logML = - self.n * T * np.log(np.pi) / 2
+        logML = logML + sum(gammaln((T + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+        logML = logML - T * sum(np.log(psi)) / 2
         logML = logML - self.n * sum(np.log(eigaaa)) / 2
-        logML = logML - (self.T + d) * sum(np.log(eigbbb)) / 2
+        logML = logML - (T + d) * sum(np.log(eigbbb)) / 2
 
         if self.sur == 1 or self.noc == 1:
             yd = np.vstack((ydsur, ydnoc))
             xd = np.vstack((xdsur, xdnoc))
 
             # prior mode of the VAR coefficients
-            betahatd = self.b
+            betahatd = b
 
             # VAR residuals at the prior mode
             epshatd = yd - xd @ betahatd
@@ -392,7 +405,7 @@ class BVARGLP(object):
             norm = norm + sum(gammaln((Td + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
             norm = norm - Td * sum(np.log(psi)) / 2
             norm = norm - self.n * sum(np.log(eigaaa)) / 2
-            norm = norm - (self.T + d) * sum(np.log(eigbbb)) / 2
+            norm = norm - (T + d) * sum(np.log(eigbbb)) / 2
             logML = logML - norm
 
         if self.hyperpriors == 1:
