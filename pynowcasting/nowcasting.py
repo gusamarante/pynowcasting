@@ -104,7 +104,11 @@ class BVARGLP(object):
 
         self._set_priors()
         self._regressor_matrix_ols()
-        self._minimization()
+        self.log_post, self.betahat, self.sigmahat, self.itct, self.lamb = self._minimization()
+        self.theta = self.theta_max
+        self.miu = self.miu_max
+
+        # TODO parei aqui - linha 116 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
@@ -227,7 +231,8 @@ class BVARGLP(object):
 
         # Minimization of the negative of the posterior of the hyperparameters
         def myfun(xxx):
-            return self._logmlvar_formin(xxx)
+            logML, _, _ = self._logmlvar_formin(xxx)
+            return -logML
 
         # Optimization
         fh, xh, gh, h, itct, fcount, retcodeh = csminwel(fcn=myfun,
@@ -238,7 +243,10 @@ class BVARGLP(object):
                                                          nit=1000,
                                                          verbose=self.verbose)
 
-        # TODO parei aqui, linha 105 do MATLAB bvarGLP - main - largebvar - uncodiutional forecasts
+        log_post, betahat, sigmahat = self._logmlvar_formin(xh)
+        lamb = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-xh[0]))
+
+        return log_post, betahat, sigmahat, itct, lamb
 
     @staticmethod
     def _gamma_coef(mode, sd):
@@ -429,7 +437,7 @@ class BVARGLP(object):
                                                    beta=self.priorcoef.loc['beta', 'PSI'])
                 logML = logML + sum(toadd)
 
-        return -logML
+        return logML, betahat, sigmahat
 
     @staticmethod
     def _log_gammma_pdf(x, k, theta):
