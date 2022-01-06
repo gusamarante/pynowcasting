@@ -354,7 +354,8 @@ class BVARGLP(object):
             while logMLold == -10e15:  # TODO is this correct?
                 P[0, :] = np.random.multivariate_normal(mean=postmode,
                                                         cov=(self.mcmccosnt ** 2) * HH)
-
+                logMLold, betadrawold, sigmadrawold = self._logmlvar_formcmc(P[0])
+                self._logmlvar_formcmc(P[0])
         # TODO parei aqui - linha 247 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _logmlvar_formin(self, par):
@@ -542,6 +543,228 @@ class BVARGLP(object):
 
         return logML, betahat, sigmahat
 
+    def _logmlvar_formcmc(self, par):
+        """
+        This function computes the log-posterior (or the logML if hyperpriors=0),
+        and draws from the posterior distribution of the coefficients and of the
+        covariance matrix of the residuals of the BVAR of Giannone, Lenza and
+        Primiceri (2012)
+        """
+
+        # hyperparameters
+        lambda_ = par[0]
+        d = self.n + 2
+        theta = self.theta_min
+        miu = self.miu_min
+
+        if self.mnpsi == 0:
+            psi = self.SS * (d - self.n - 1)
+
+            if self.sur == 1:
+                theta = par[1]
+
+                if self.noc == 1:
+                    miu = par[2]
+
+            else:  # if self.sur == 0
+                if self.noc == 1:
+                    miu = par[1]
+
+        else:  # self.mnpsi == 1
+            psi = par[1:self.n + 1]
+
+            if self.sur == 1:
+                theta = par[self.n + 1]
+
+                if self.noc == 1:
+                    miu = par[self.n + 2]
+
+            else:  # if self.sur == 0
+                if self.noc == 1:
+                    miu = par[self.n + 1]
+
+        if self.mnalpha == 0:
+            alpha = 2
+        else:  # self.mnalpha == 1
+            alpha = par[-1]
+
+        # Check if parameters are outside of parameter space and, if so, return a very low value of the posterior
+        cond_lower_bound = np.all([lambda_ < self.lambda_min,
+                                   np.all(psi < self.psi_min),
+                                   theta < self.theta_min,
+                                   miu < self.miu_min,
+                                   alpha < self.alpha_min])
+
+        cond_upper_bound = np.all([lambda_ > self.lambda_max,
+                                   np.all(psi > self.psi_max),
+                                   theta > self.theta_max,
+                                   miu > self.miu_max])
+
+        if cond_lower_bound or cond_upper_bound:
+            logML = -10e15
+            betadraw = None  # TODO Might have to change these to empty arrays
+            drawSIGMA = None
+            return logML, betadraw, drawSIGMA
+
+        else:
+            # Priors
+            omega = np.zeros(self.k)
+            omega[0] = self.vc
+
+            for i in range(1, self.lags + 1):
+                omega[1 + (i - 1) * self.n: 1 + i * self.n] = \
+                    (d - self.n - 1) * (lambda_ ** 2) * (1 / (i ** alpha)) / psi
+
+            # Prior scale matrix for the covariance of the shocks
+            PSI = np.diag(psi)
+
+            Td = 0
+            xdsur = np.array([]).reshape((0, self.k))
+            ydsur = np.array([]).reshape((0, self.n))
+
+            xdnoc = np.array([]).reshape((0, self.k))
+            ydnoc = np.array([]).reshape((0, self.n))
+
+            # dummy observations if sur and / or noc = 1
+            y = self.y.copy()
+            x = self.x.copy()
+            T = self.T
+
+            if self.sur == 1:
+                xdsur = (1 / theta) * np.tile(self.y0, (1, self.lags))
+                xdsur = np.hstack((np.array([[1 / theta]]), xdsur))
+
+                ydsur = (1 / theta) * self.y0
+
+                y = np.vstack((y, ydsur))
+                x = np.vstack((x, xdsur))
+
+                Td = Td + 1
+
+            if self.noc == 1:
+                ydnoc = (1 / miu) * np.diag(self.y0)
+                # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
+                # TODO ydnoc(pos, pos) = 0;
+
+                xdnoc = (1 / miu) * np.tile(np.diag(self.y0), (1, self.lags))
+                xdnoc = np.hstack((np.zeros((self.n, 1)), xdnoc))
+
+                y = np.vstack((y, ydnoc))
+                x = np.vstack((x, xdnoc))
+
+                Td = Td + self.n
+
+            # ===== Output =====
+            # minesota prior mean
+            b = np.zeros((self.k, self.n))
+            diagb = np.ones(self.n)
+            # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
+            # TODO diagb(pos) = 0
+            b[1:self.n + 1, :] = np.diag(diagb)
+            # self.b = b
+
+            # posterior mode of the VAR coefficients
+            matA = x.T @ x + np.diag(1 / omega)
+            matB = x.T @ y + np.diag(1 / omega) @ b
+            betahat = np.linalg.solve(matA, matB)  # np.solve runs more efficiently that inverting a gigantic matrix
+
+            # VAR residuals
+            epshat = y - x @ betahat
+
+            # logMl
+            T = T + Td
+
+            aaa = np.diag(np.sqrt(omega)) @ x.T @ x @ np.diag(np.sqrt(omega))
+            bbb = np.diag(1 / np.sqrt(psi)) @ (epshat.T @ epshat + (betahat - b).T @ np.diag(1 / omega) @
+                                               (betahat - b)) @ np.diag(1 / np.sqrt(psi))
+
+            eigaaa = np.linalg.eig(aaa)[0].real
+            eigaaa[eigaaa < 1e-12] = 0
+            eigaaa = eigaaa + 1
+
+            eigbbb = np.linalg.eig(bbb)[0].real
+            eigbbb[eigbbb < 1e-12] = 0
+            eigbbb = eigbbb + 1
+
+            logML = - self.n * T * np.log(np.pi) / 2
+            logML = logML + sum(gammaln((T + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+            logML = logML - T * sum(np.log(psi)) / 2
+            logML = logML - self.n * sum(np.log(eigaaa)) / 2
+            logML = logML - (T + d) * sum(np.log(eigbbb)) / 2
+
+            # More terms for logML in case of more priors
+            if self.sur == 1 or self.noc == 1:
+                yd = np.vstack((ydsur, ydnoc))
+                xd = np.vstack((xdsur, xdnoc))
+
+                # prior mode of the VAR coefficients
+                betahatd = b
+
+                # VAR residuals at the prior mode
+                epshatd = yd - xd @ betahatd
+
+                aaa = np.diag(np.sqrt(omega)) @ xd.T @ xd @ np.diag(np.sqrt(omega))
+                bbb = np.diag(1 / np.sqrt(psi)) @ (epshatd.T @ epshatd + (betahatd - b).T @ np.diag(1 / omega) @
+                                                   (betahatd - b)) @ np.diag(1 / np.sqrt(psi))
+
+                eigaaa = np.linalg.eig(aaa)[0].real
+                eigaaa[eigaaa < 1e-12] = 0
+                eigaaa = eigaaa + 1
+
+                eigbbb = np.linalg.eig(bbb)[0].real
+                eigbbb[eigbbb < 1e-12] = 0
+                eigbbb = eigbbb + 1
+
+                # normalizing constant
+                norm = - self.n * Td * np.log(np.pi) / 2
+                norm = norm + sum(gammaln((Td + d - np.arange(self.n)) / 2) - gammaln((d - np.arange(self.n)) / 2))
+                norm = norm - Td * sum(np.log(psi)) / 2
+                norm = norm - self.n * sum(np.log(eigaaa)) / 2
+                norm = norm - (T + d) * sum(np.log(eigbbb)) / 2
+                logML = logML - norm
+
+                if self.hyperpriors == 1:
+                    logML = logML + self._log_gammma_pdf(x=lambda_,
+                                                         k=self.priorcoef.loc['lambda', 'r_k'],
+                                                         theta=self.priorcoef.loc['lambda', 'r_theta'])
+
+                    if self.sur == 1:
+                        logML = logML + self._log_gammma_pdf(x=theta,
+                                                             k=self.priorcoef.loc['theta', 'r_k'],
+                                                             theta=self.priorcoef.loc['theta', 'r_theta'])
+
+                    if self.noc == 1:
+                        logML = logML + self._log_gammma_pdf(x=miu,
+                                                             k=self.priorcoef.loc['miu', 'r_k'],
+                                                             theta=self.priorcoef.loc['miu', 'r_theta'])
+
+                    if self.mnpsi == 1:
+                        toadd = self._log_invgammma_to_pdf(x=psi / (d - self.n - 1),
+                                                           alpha=self.priorcoef.loc['alpha', 'PSI'],
+                                                           beta=self.priorcoef.loc['beta', 'PSI'])
+                        logML = logML + sum(toadd)
+
+            # takes a draw from the posterior of SIGMA and beta, if draw is on
+            draw = (self.mcmcfcast == 1) or (self.mcmcstorecoef == 1)
+
+            if not draw:
+                betadraw = None  # TODO Might have to change these to empty arrays
+                drawSIGMA = None
+            else:
+                S = PSI + epshat.T @ epshat + (betahat - b).T @ np.diag(1 / omega) @ (betahat - b)
+
+                E, V = np.linalg.eig(S)
+                Sinv = V @ np.diag(1 / np.abs(E)) @ V.T
+                eta = np.random.multivariate_normal(mean=np.zeros(self.n),
+                                                    cov=Sinv,
+                                                    size=T+d)
+                drawSIGMA = np.linalg.solve(eta.T @ eta, np.eye(self.n))
+                cholSIGMA = self._cholred((drawSIGMA + drawSIGMA.T) / 2)
+                cholZZinv = self._cholred(np.linalg.solve(x.T @ x + np.diag(1 / omega), np.eye(self.k)))
+                betadraw = betahat + cholZZinv.T @ np.random.normal(size=betahat.shape) @ cholSIGMA
+
+            return logML, betadraw, drawSIGMA
+
     @staticmethod
     def _gamma_coef(mode, sd):
         k = (2 + mode ** 2 / sd ** 2 + np.sqrt((4 + mode ** 2 / sd ** 2) * mode ** 2 / sd ** 2)) / 2
@@ -557,6 +780,16 @@ class BVARGLP(object):
     def _log_invgammma_to_pdf(x, alpha, beta):
         r = alpha * np.log(beta) - (alpha + 1) * np.log(x) - beta *(1 / x) - gammaln(alpha)
         return r
+
+    @staticmethod
+    def _cholred(S):
+        d, v = np.linalg.eig((S + S.T) / 2)
+        d = d.real
+        scale = np.diag(S).mean() * 1e-12
+        J = d > scale
+        C = np.zeros(S.shape)
+        C[J, :] = (v[:, J] @ np.diag(d[J] ** 0.5)).T
+        return C
 
 
 class OLS1(object):
