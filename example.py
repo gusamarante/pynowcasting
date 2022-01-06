@@ -68,6 +68,3 @@ df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
 bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1, verbose=True)
-
-par = np.array([0.1493, 1.1060])
-bvar._logmlvar_formcmc(par)

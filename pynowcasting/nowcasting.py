@@ -351,12 +351,24 @@ class BVARGLP(object):
             # starting value of the Metropolis algorithm
             P = np.zeros((self.ndraws, self.xh.shape[0]))
             logMLold = -10e15
-            while logMLold == -10e15:  # TODO is this correct?
+            while logMLold == -10e15:  # TODO is this correct? This should be '<='
                 P[0, :] = np.random.multivariate_normal(mean=postmode,
                                                         cov=(self.mcmccosnt ** 2) * HH)
                 logMLold, betadrawold, sigmadrawold = self._logmlvar_formcmc(P[0])
-                self._logmlvar_formcmc(P[0])
-        # TODO parei aqui - linha 247 do bvarGLP / main / unconditionalforecasts / LargeBVAR
+
+            # matrix to store the draws of the VAR coefficients if MCMCstorecoeff is on
+            if self.mcmcstorecoef == 1:
+                mcmc_beta = np.zeros((self.k, self.n, self.ndraws - self.ndrwasdiscard))
+                mcmc_sigma = np.zeros((self.n, self.n, self.ndraws - self.ndrwasdiscard))
+
+            # matrix to store the forecasts if MCMCfcast is on
+            if self.mcmcfcast == 1:
+                mcmc_Dforecast = np.zeros((self.hz, self.n, self.ndraws - self.ndrwasdiscard))
+
+            # Metropolis iterations
+            count = 0
+
+        # TODO parei aqui - linha 264 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _logmlvar_formin(self, par):
         """
