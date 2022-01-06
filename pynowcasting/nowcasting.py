@@ -91,7 +91,7 @@ class BVARGLP(object):
         self.fcast = fcast
         self.hz = hz
         self.mcmc = mcmc
-        self.ndrwas = ndraws
+        self.ndraws = ndraws
         self.ndrwasdiscard = ndrawsdiscard
         self.mcmccosnt = mcmcconst
         self.mcmcfcast = mcmcfcast
@@ -106,6 +106,7 @@ class BVARGLP(object):
         self._regressor_matrix_ols()
         self._minimization()
         self._forecasts()
+        self._mcmc()
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
@@ -198,30 +199,18 @@ class BVARGLP(object):
         if self.mnpsi == 1:
             inpsi = -np.log((self.psi_max - self.psi0) / (self.psi0 - self.psi_min))
             x0 = np.concatenate((x0, inpsi))
-        else:
-            # TODO this looks redundant
-            inpsi = None
 
         if self.sur == 1:
             intheta = np.array([-np.log((self.theta_max - self.theta0) / (self.theta0 - self.theta_min))])
             x0 = np.concatenate((x0, intheta))
-        else:
-            # TODO this looks redundant
-            intheta = None
 
         if self.noc == 1:
             inmiu = np.array([-np.log((self.miu_max - self.miu0) / (self.miu0 - self.miu_min))])
             x0 = np.concatenate((x0, inmiu))
-        else:
-            # TODO this looks redundant
-            inmiu = None
 
         if self.mnalpha == 1:
             inalpha = np.array([-np.log((self.alpha_max - self.alpha0) / (self.alpha0 - self.alpha_min))])
             x0 = np.concatenate((x0, inalpha))
-        else:
-            # TODO this looks redundant
-            inalpha = None
 
         # initial guess for the inverse Hessian
         H0 = 10 * np.eye(len(x0))
@@ -241,6 +230,8 @@ class BVARGLP(object):
                                                          verbose=self.verbose)
 
         self.itct = itct
+        self.xh = xh
+        self.h = h
         self.log_post, self.betahat, self.sigmahat = self._logmlvar_formin(xh)
         self.lamb = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-xh[0]))
         self.theta = self.theta_max
@@ -286,8 +277,85 @@ class BVARGLP(object):
             self.alpha = self.alpha_min + (self.alpha_max - self.alpha_min) / (1 + np.exp(-xh[-1]))
 
     def _forecasts(self):
-        pass
-        # TODO parei aqui - linha 149 do bvarGLP / main / unconditionalforecasts / LargeBVAR
+        # Forecasts ate the posterior mode
+        if self.fcast == 1:
+            Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
+            for tau in range(self.hz):
+                indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
+                xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
+                Y[self.T + tau, :] = xT @ self.betahat
+
+            self.forecast = Y[-self.hz:, :]
+
+    def _mcmc(self):
+        if self.mcmc == 1:  # TODO this check could go somewhere else
+            # Jacobian of the transformation of the hyperparameters that has been
+            # used for the constrained maximization
+            JJ = np.exp(self.xh) / ((1 + np.exp(self.xh)) ** 2)
+            JJ[0] = (self.lambda_max - self.lambda_min) * JJ[0]
+
+            if self.mnpsi == 1:
+                JJ[1: self.n + 1] = (self.psi_max - self.psi_min) * JJ[1: self.n + 1]
+
+                if self.sur == 1:
+                    JJ[self.n + 1] = (self.theta_max - self.theta_min) * JJ[self.n + 1]
+
+                    if self.noc == 1:
+                        JJ[self.n + 2] = (self.miu_max - self.miu_min) * JJ[self.n + 2]
+
+                else:  # self.sur == 0
+                    if self.noc == 1:
+                        JJ[self.n + 1] = (self.miu_max - self.miu_min) * JJ[self.n + 1]
+
+            else:  # self.mnpsi == 0
+
+                if self.sur == 1:
+                    JJ[1] = (self.theta_max - self.theta_min) * JJ[1]
+
+                    if self.noc == 1:
+                        JJ[2] = (self.miu_max - self.miu_min) * JJ[2]
+
+                else:  # self.sur == 0
+                    if self.noc == 1:
+                        JJ[1] = (self.miu_max - self.miu_min) * JJ[1]
+
+            if self.mnalpha == 1:
+                JJ[-1] = (self.alpha_max - self.alpha_min) * JJ[-1]
+
+            JJ = np.diag(JJ)
+            HH = JJ @ self.h @ JJ
+
+            # Regularization to assure that HH is positive-definite
+            eigval, eigvec = np.linalg.eig(HH)
+            HH = eigvec @ np.diag(np.abs(eigval)) @ eigvec.T
+
+            # recovering the posterior mode
+            postmode = np.array([self.lamb])
+
+            if self.mnpsi == 1:
+                modepsi = np.array([self.psi])
+                postmode = np.concatenate((postmode, modepsi))
+
+            if self.sur == 1:
+                modetheta = np.array([self.theta])
+                postmode = np.concatenate((postmode, modetheta))
+
+            if self.noc == 1:
+                modemiu = np.array([self.miu])
+                postmode = np.concatenate((postmode, modemiu))
+
+            if self.mnalpha == 1:
+                modealpha = np.array([self.alpha])
+                postmode = np.concatenate((postmode, modealpha))
+
+            # starting value of the Metropolis algorithm
+            P = np.zeros((self.ndraws, self.xh.shape[0]))
+            logMLold = -10e15
+            while logMLold == -10e15:  # TODO is this correct?
+                P[0, :] = np.random.multivariate_normal(mean=postmode,
+                                                        cov=(self.mcmccosnt ** 2) * HH)
+
+        # TODO parei aqui - linha 247 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _logmlvar_formin(self, par):
         """
