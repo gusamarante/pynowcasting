@@ -2,6 +2,7 @@ import numpy as np
 from scipy.special import gammaln
 from pynowcasting.pycsminwel import csminwel
 import pandas as pd
+from tqdm import tqdm
 
 
 class BVARGLP(object):
@@ -360,15 +361,59 @@ class BVARGLP(object):
             if self.mcmcstorecoef == 1:
                 mcmc_beta = np.zeros((self.k, self.n, self.ndraws - self.ndrwasdiscard))
                 mcmc_sigma = np.zeros((self.n, self.n, self.ndraws - self.ndrwasdiscard))
+            else:
+                mcmc_beta = None
+                mcmc_sigma = None
 
             # matrix to store the forecasts if MCMCfcast is on
             if self.mcmcfcast == 1:
                 mcmc_Dforecast = np.zeros((self.hz, self.n, self.ndraws - self.ndrwasdiscard))
+            else:
+                mcmc_Dforecast = None
 
             # Metropolis iterations
             count = 0
+            for i in tqdm(range(1, self.ndraws), 'MCMC Iterations', disable=not self.verbose):
+                # draw candidate value
+                P[i, :] = np.random.multivariate_normal(mean=P[i - 1, :],
+                                                        cov=(self.mcmccosnt ** 2) * HH)
+                logMLnew, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
 
-        # TODO parei aqui - linha 264 do bvarGLP / main / unconditionalforecasts / LargeBVAR
+                if logMLnew > logMLold:  # if there is an improvement, accept it
+                    logMLold = logMLnew
+                    count = count + 1
+                else:  # If there is no improvement, there is a chance to accept the draw
+                    if np.random.rand() < np.exp(logMLnew - logMLold):  # If accetpted
+                        logMLold = logMLnew
+                        count = count + 1
+                    else:  # If not accepted, overwrite the draw with the last value
+                        P[i, :] = P[i - 1, :]
+
+                        # if MCMCfcast is on, take a new draw of the VAR coefficients with
+                        # the old hyperparameters if have rejected the new ones
+                        if (self.mcmcfcast == 1) or (self.mcmcstorecoef == 1):
+                            _, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
+
+                # stores draws of VAR coefficients if MCMCstorecoeff is on
+                if (i >= self.ndrwasdiscard) and (self.mcmcstorecoef == 1):
+                    mcmc_beta[:, :, i - self.ndrwasdiscard] = betadrawnew
+                    mcmc_sigma[:, :, i - self.ndrwasdiscard] = sigmadrawnew
+
+                # produce and store the forecasts if MCMCfcast is on
+                if (i >= self.ndrwasdiscard) and self.mcmcfcast == 1:
+                    Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
+                    for tau in range(self.hz):
+                        indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
+                        xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
+                        Y[self.T + tau, :] = xT @ betadrawnew + np.random.multivariate_normal(mean=np.zeros(self.n),
+                                                                                              cov=sigmadrawnew)
+
+                    mcmc_Dforecast[:, :, i - self.ndrwasdiscard] = Y[-self.hz:, :]
+
+            # store the draws of the hyperparameters
+            mcmc_lambda = P[self.ndrwasdiscard:, 1]  # Standard Minesota Prior
+
+        # TODO parei aqui - linha 315 do bvarGLP / main / unconditionalforecasts / LargeBVAR
 
     def _logmlvar_formin(self, par):
         """
