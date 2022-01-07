@@ -411,9 +411,59 @@ class BVARGLP(object):
                     mcmc_Dforecast[:, :, i - self.ndrwasdiscard] = Y[-self.hz:, :]
 
             # store the draws of the hyperparameters
-            mcmc_lambda = P[self.ndrwasdiscard:, 1]  # Standard Minesota Prior
+            mcmc_lambda = P[self.ndrwasdiscard:, 0]  # Standard Minesota Prior
 
-        # TODO parei aqui - linha 315 do bvarGLP / main / unconditionalforecasts / LargeBVAR
+            mcmc_psi = None
+            mcmc_theta = None
+            mcmc_miu = None
+
+            if self.mnpsi == 1:
+                # diagonal elements of the scale matrix of the IW prior on the residual variance
+                mcmc_psi = P[self.ndrwasdiscard:, 1:self.n+2]
+
+                if self.sur == 1:
+                    # std of sur prior
+                    mcmc_theta = P[self.ndrwasdiscard:, self.n + 1]
+
+                    if self.noc == 1:
+                        # std of noc prior
+                        mcmc_miu = P[self.ndrwasdiscard:, self.n + 2]
+
+                else:  # self.sur == 0
+                    if self.noc == 1:
+                        # std of noc prior
+                        mcmc_miu = P[self.ndrwasdiscard:, self.n + 1]
+
+            else:  # self.mnpsi == 0
+                if self.sur == 1:
+                    # std of sur prior
+                    mcmc_theta = P[self.ndrwasdiscard:, 1]
+
+                    if self.noc == 1:
+                        # std of noc prior
+                        mcmc_miu = P[self.ndrwasdiscard:, 2]
+
+                else:  # self.sur == 0
+                    if self.noc == 1:
+                        # std of noc prior
+                        mcmc_miu = P[self.ndrwasdiscard:, 1]
+
+            if self.mnalpha == 1:
+                # Lag-decaying parameter of the MN prior
+                mcmc_alpha = P[self.ndrwasdiscard:, -1]
+
+            mcmc_accrate = np.mean((mcmc_lambda[1:] != mcmc_lambda[:-1]))
+
+            # Save the chains as attributes
+            self.mcmc_beta = mcmc_beta
+            self.mcmc_sigma = mcmc_sigma
+            self.mcmc_dforecast = mcmc_Dforecast
+            self.mcmc_lambda = mcmc_lambda
+            self.mcmc_psi = mcmc_psi
+            self.mcmc_theta = mcmc_theta
+            self.mcmc_miu = mcmc_miu
+
+            self.mcmc_accrate = mcmc_accrate
 
     def _logmlvar_formin(self, par):
         """
