@@ -68,7 +68,13 @@ for var in transform_dict.keys():
 df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
-bvar = BVARGLP(data=df_trans, lags=5, mnpsi=0, sur=0, mcmcconst=2, mcmc=1, verbose=True,
-               ndraws=1100, ndrawsdiscard=100)
+# TODO test different specifications
+bvar = BVARGLP(data=df_trans, lags=5, mcmcconst=2, verbose=True, ndraws=100, ndrawsdiscard=10, crit=1e-16,
+               mnpsi=0,    # MN prior coef
+               mnalpha=0,  # MN prior decay
+               sur=0,      # Single Unit Root prior
+               noc=0,      # No-Cointegration Prior
+               fcast=1,    # Generate forecasts or not
+               mcmc=1)     # Run MCMC or not
 
 a = 1

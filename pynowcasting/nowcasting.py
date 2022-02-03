@@ -25,7 +25,8 @@ class BVARGLP(object):
                  mcmcconst=1,
                  mcmcfcast=1,  # TODO Set Boolean
                  mcmcstorecoef=1,  # TODO Set Boolean
-                 verbose=False):
+                 verbose=False,
+                 crit=1e-16):
         # TODO rewrite documentation according to variable usage
         """
         This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP
@@ -60,7 +61,7 @@ class BVARGLP(object):
         :param fcast: 0 = does not generate forecasts at the posterior mode
                       1 = generates forecasts at the posterior mode (default)
         :param hz: longest horizon at which the code generates forecasts
-                   (default: maxhz=8)
+                   (default: hz=8)
         :param mcmc: 0 = does not run the MCMC (default)
                      1 = runs the MCMC after the maximization
         :param ndraws: number of draws in the MCMC (default: Ndraws=20000)
@@ -80,6 +81,8 @@ class BVARGLP(object):
         :param verbose: Prints relevant information during the estimation.
         """
 
+        # TODO Check if data frequency is M or Q
+
         self.data = data
         self.lags = lags
         self.hyperpriors = hyperpriors
@@ -98,6 +101,7 @@ class BVARGLP(object):
         self.mcmcfcast = mcmcfcast
         self.mcmcstorecoef = mcmcstorecoef
         self.verbose = verbose
+        self.crit = crit
 
         self.TT = data.shape[0]  # Time-series sample size without lags
         self.n = data.shape[1]  # Number of variables in the VAR
@@ -226,7 +230,7 @@ class BVARGLP(object):
                                                          x0=x0,
                                                          h0=H0,
                                                          grad=None,
-                                                         crit=1e-16,
+                                                         crit=self.crit,
                                                          nit=1000,
                                                          verbose=self.verbose)
 
@@ -334,7 +338,7 @@ class BVARGLP(object):
             postmode = np.array([self.lamb])
 
             if self.mnpsi == 1:
-                modepsi = np.array([self.psi])
+                modepsi = np.array(self.psi)
                 postmode = np.concatenate((postmode, modepsi))
 
             if self.sur == 1:
@@ -493,14 +497,14 @@ class BVARGLP(object):
             psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-par[1:self.n + 1]))  # TODO check the size of par
 
             if self.sur == 1:
-                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[self.n + 2]))  # TODO check the size of par
+                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[self.n + 1]))  # TODO check the size of par
 
                 if self.noc == 1:
-                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 3]))  # TODO check the size of par
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 2]))  # TODO check the size of par
 
             else:  # if self.sur == 0
                 if self.noc == 1:
-                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 2]))
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 1]))
 
         if self.mnalpha == 0:
             alpha = 2
@@ -696,14 +700,14 @@ class BVARGLP(object):
             alpha = par[-1]
 
         # Check if parameters are outside of parameter space and, if so, return a very low value of the posterior
-        cond_lower_bound = np.all([lambda_ < self.lambda_min,
-                                   np.all(psi < self.psi_min),
+        cond_lower_bound = np.any([lambda_ < self.lambda_min,
+                                   np.any(psi < self.psi_min),
                                    theta < self.theta_min,
                                    miu < self.miu_min,
                                    alpha < self.alpha_min])
 
-        cond_upper_bound = np.all([lambda_ > self.lambda_max,
-                                   np.all(psi > self.psi_max),
+        cond_upper_bound = np.any([lambda_ > self.lambda_max,
+                                   np.any(psi > self.psi_max),
                                    theta > self.theta_max,
                                    miu > self.miu_max])
 
@@ -720,7 +724,7 @@ class BVARGLP(object):
 
             for i in range(1, self.lags + 1):
                 omega[1 + (i - 1) * self.n: 1 + i * self.n] = \
-                    (d - self.n - 1) * (lambda_ ** 2) * (1 / (i ** alpha)) / psi
+                    ((d - self.n - 1) * (lambda_ ** 2) * (1 / (i ** alpha))) / psi
 
             # Prior scale matrix for the covariance of the shocks
             PSI = np.diag(psi)
@@ -921,3 +925,28 @@ class OLS1(object):
         self.sig2hatols = (self.resols.T @ self.resols) / (nobs - nvar)
         self.sigbhatols = self.sig2hatols * self.invXX
         self.r2 = np.var(self.yhatols) / np.var(y)
+
+
+class CRBVAR(object):
+
+    def __init__(self,
+                 data,
+                 lags,
+                 hyperpriors=1,  # TODO Set Boolean
+                 vc=10e6,
+                 pos=None,  # TODO Implement based on the variable names
+                 mnpsi=1,  # TODO Set Boolean
+                 mnalpha=0,  # TODO Set Boolean
+                 sur=1,  # TODO Set Boolean
+                 noc=1,  # TODO Set Boolean
+                 fcast=1,  # TODO Set Boolean
+                 hz=8,
+                 mcmc=0,  # TODO Set Boolean
+                 ndraws=20000,
+                 ndrawsdiscard=10000,  # TODO set to 'ndraws/2'
+                 mcmcconst=1,
+                 mcmcfcast=1,  # TODO Set Boolean
+                 mcmcstorecoef=1,  # TODO Set Boolean
+                 verbose=False):
+
+        pass
