@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 import pandas as pd
 import numpy as np
+from time import time
 
 # ===== USER DEFINED PARAMETERS =====
 show_charts = True
@@ -69,12 +70,12 @@ df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
 # TODO test different specifications
-bvar = BVARGLP(data=df_trans, lags=5, mcmcconst=2, verbose=True, ndraws=100, ndrawsdiscard=10, crit=1e-16,
-               mnpsi=0,    # MN prior coef
-               mnalpha=0,  # MN prior decay
-               sur=0,      # Single Unit Root prior
-               noc=0,      # No-Cointegration Prior
-               fcast=1,    # Generate forecasts or not
-               mcmc=1)     # Run MCMC or not
 
-a = 1
+tic = time()
+bvar = BVARGLP(data=df_trans, lags=5, mcmcconst=2, verbose=True, ndraws=100, ndrawsdiscard=10, crit=1e-16,
+               fcast=1, mcmc=0,
+               mnpsi=1,    # MN prior coef
+               mnalpha=1,  # MN prior decay
+               sur=1,      # Single Unit Root prior
+               noc=1)      # No-Cointegration Prior
+print(time() - tic)
