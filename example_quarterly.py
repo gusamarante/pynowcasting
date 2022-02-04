@@ -69,11 +69,9 @@ for var in transform_dict.keys():
 df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
-# TODO test different specifications
-
 tic = time()
-bvar = BVARGLP(data=df_trans, lags=5, mcmcconst=2, verbose=True, ndraws=100, ndrawsdiscard=10, crit=1e-16,
-               fcast=1, mcmc=0,
+bvar = BVARGLP(data=df_trans, mcmcconst=2, ndraws=100, ndrawsdiscard=10,
+               fcast=1, mcmc=0, verbose=True, lags=5,
                mnpsi=1,    # MN prior coef
                mnalpha=1,  # MN prior decay
                sur=1,      # Single Unit Root prior
