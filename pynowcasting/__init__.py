@@ -1,4 +1,4 @@
-from pynowcasting.nowcasting import BVARGLP
+from pynowcasting.nowcasting import BVARGLP, CRBVAR
 from pynowcasting.pycsminwel import csminwel
 
-__all__ = ['BVARGLP', 'csminwel']
+__all__ = ['CRBVAR', 'BVARGLP', 'csminwel']

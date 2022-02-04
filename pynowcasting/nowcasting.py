@@ -949,4 +949,27 @@ class CRBVAR(object):
                  mcmcstorecoef=1,  # TODO Set Boolean
                  verbose=False):
 
-        pass
+        # TODO Documentation: Assumes data has a monthly frequency (Still need to treat daily data)
+
+        assert data.index.inferred_freq == 'M', "input 'data' must be monthly and recognized by pandas."
+
+        self.data = data
+        # self.data_quarterly = self._get_quarterly_df()
+        self.data_quarterly = data.resample('Q').last().dropna()  # TODO this is temporary, to match MATLAB
+
+    def _get_quarterly_df(self):
+        df = self.data
+
+        df = df.dropna(how='all')
+        is_quarterly = df.isna().mean(axis=0) != 0
+        quarterly_variables = list(is_quarterly[is_quarterly].index)
+        obs2keep = df.drop(quarterly_variables, axis=1)
+        obs2keep = obs2keep.resample('Q').count() == 3
+
+        df_quarterly = df.resample('Q').mean()
+        df_quarterly = df_quarterly[obs2keep.values]
+
+        return df_quarterly
+
+
+        a = 1
