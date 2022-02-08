@@ -70,10 +70,10 @@ df_trans = df_trans.dropna()
 
 # ===== NOWCAST =====
 tic = time()
-bvar = BVARGLP(data=df_trans, mcmcconst=2, ndraws=100, ndrawsdiscard=10,
-               fcast=1, mcmc=0, verbose=True, lags=5,
+bvar = BVARGLP(data=df_trans, mcmcconst=2, ndraws=2000, ndrawsdiscard=100,
+               fcast=1, mcmc=1, verbose=True, lags=5,
                mnpsi=1,    # MN prior coef
-               mnalpha=1,  # MN prior decay
-               sur=1,      # Single Unit Root prior
-               noc=1)      # No-Cointegration Prior
+               mnalpha=0,  # MN prior decay
+               sur=0,      # Single Unit Root prior
+               noc=0)      # No-Cointegration Prior
 print(time() - tic)

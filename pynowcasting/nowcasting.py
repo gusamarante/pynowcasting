@@ -947,7 +947,8 @@ class CRBVAR(object):
                  mcmcconst=1,
                  mcmcfcast=1,  # TODO Set Boolean
                  mcmcstorecoef=1,  # TODO Set Boolean
-                 verbose=False):
+                 verbose=False,
+                 crit=1e-16):
 
         # TODO Documentation: Assumes data has a monthly frequency (Still need to treat daily data)
 
@@ -956,6 +957,49 @@ class CRBVAR(object):
         self.data = data
         # self.data_quarterly = self._get_quarterly_df()
         self.data_quarterly = data.resample('Q').last().dropna()  # TODO this is temporary, to match MATLAB
+        self.lags = lags
+        self.hyperpriors = hyperpriors
+        self.vc = vc
+        self.pos = pos
+        self.mnalpha = mnalpha
+        self.mnpsi = mnpsi
+        self.sur = sur
+        self.noc = noc
+        self.fcast = fcast
+        self.hz = hz
+        self.mcmc = mcmc
+        self.ndraws = ndraws
+        self.ndrwasdiscard = ndrawsdiscard
+        self.mcmccosnt = mcmcconst
+        self.mcmcfcast = mcmcfcast
+        self.mcmcstorecoef = mcmcstorecoef
+        self.verbose = verbose
+        self.crit = crit
+
+        self.bvar_quarterly = BVARGLP(data=self.data_quarterly,
+                                      lags=lags,
+                                      hyperpriors=hyperpriors,
+                                      vc=vc,
+                                      pos=pos,
+                                      mnpsi=mnpsi,
+                                      mnalpha=mnalpha,
+                                      sur=sur,
+                                      noc=noc,
+                                      fcast=fcast,
+                                      hz=hz,
+                                      mcmc=mcmc,
+                                      ndraws=ndraws,
+                                      ndrawsdiscard=ndrawsdiscard,
+                                      mcmcconst=mcmcconst,
+                                      mcmcfcast=mcmcfcast,
+                                      mcmcstorecoef=mcmcstorecoef,
+                                      verbose=verbose,
+                                      crit=crit)
+
+        betahat = self.bvar_quarterly.betahat
+        sigmahat = self.bvar_quarterly.sigmahat
+
+        AA, BB, C2, VV, DD, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig = self._build_monthly_ss(betahat, sigmahat)
 
     def _get_quarterly_df(self):
         df = self.data
@@ -971,5 +1015,46 @@ class CRBVAR(object):
 
         return df_quarterly
 
+    def _build_monthly_ss(self, beta, sigma):
+        qqflag = False
+        k, n = beta.shape
+        lags = int((k - 1) / n)
 
-        a = 1
+        # state equations
+        AA = np.zeros((n * lags, n * lags))  # Autoregressive coefficients
+        AA[0:n, :] = beta[1:, :].T
+        AA[n:, 0:-2] = np.eye(n * (lags - 1))
+
+        C2 = np.zeros(n * lags)  # constant
+        C2[0:n] = beta[0, :].T
+
+        # useful elements of measurement equation
+        CC = np.zeros((n, n * lags))  # maps first n states (current month) into observables
+        CC[0:n, 0:n] = np.eye(n)
+
+        c1 = np.zeros(n)  # constant
+
+        # "shock" impact matrix
+        BB = np.linalg.cholesky(sigma)
+
+        aa = self._cuberoot(AA)
+
+        # TODO - Parei aqui - Linha 23 do build_monthly_ss
+
+        return AA, BB, C2, VV, DD, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig
+
+    @staticmethod
+    def _cuberoot(A):
+
+        d, v = np.linalg.eig(A)
+        s = np.sign(d.real)
+
+        a = v @ np.diag(((d * s) ** (1 / 3)) * s) @ np.linalg.inv(v)
+
+        if a.imag.sum() > 1e-4:
+            msg = "This cube root is not real"
+            raise ValueError(msg)
+        else:
+            a = a.real()
+
+        return a
