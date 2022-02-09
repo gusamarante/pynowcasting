@@ -1038,8 +1038,18 @@ class CRBVAR(object):
         BB = np.linalg.cholesky(sigma)
 
         aa = self._cuberoot(AA)
+        aa2 = aa @ aa
 
-        # TODO - Parei aqui - Linha 23 do build_monthly_ss
+        if lags > 1:
+            kronmat = aa2[0:n, 0:n] - aa[0:n, 0:n] @ np.linalg.lstsq(np.tile(np.eye(n), (lags - 1, 1)),
+                                                                     aa2[n:, 0:n],
+                                                                     rcond=None)[0]
+            Lambda, PP = np.linalg.eig(kronmat)
+            PPinv = np.linalg.inv(PP)
+        else:
+            pass
+
+        # TODO - Parei aqui - Linha 33 do build_monthly_ss
 
         return AA, BB, C2, VV, DD, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig
 
@@ -1055,6 +1065,6 @@ class CRBVAR(object):
             msg = "This cube root is not real"
             raise ValueError(msg)
         else:
-            a = a.real()
+            a = a.real
 
         return a
