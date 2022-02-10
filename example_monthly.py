@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-np.set_printoptions(precision=2, suppress=True, linewidth=150)
+np.set_printoptions(precision=4, suppress=True, linewidth=150)
 pd.options.display.max_columns = 50
 pd.options.display.max_columns = 50
 

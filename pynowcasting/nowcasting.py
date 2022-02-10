@@ -1,8 +1,8 @@
 import numpy as np
-from scipy.special import gammaln
-from pynowcasting.pycsminwel import csminwel
 import pandas as pd
 from tqdm import tqdm
+from scipy.special import gammaln
+from pynowcasting.pycsminwel import csminwel
 
 
 class BVARGLP(object):
@@ -998,8 +998,19 @@ class CRBVAR(object):
 
         betahat = self.bvar_quarterly.betahat
         sigmahat = self.bvar_quarterly.sigmahat
+        k, n = betahat.shape
 
-        AA, BB, C2, VV, DD, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig = self._build_monthly_ss(betahat, sigmahat)
+        AA, BB, C2, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig = self._build_monthly_ss(betahat, sigmahat)
+
+        qqKF = np.zeros((n * lags, n * lags))
+        qqKF[:n, :n] = qq
+
+        # Next line is just a weird reshaping of the starting state
+        initX = np.flip(self.data_quarterly.iloc[-(lags+1):-1].values, axis=0).T.reshape(-1, 1, order='F').reshape(-1)  # TODO Shouldn't this be .iloc[-lags:] ?
+        # initV = solve_discrete_lyapunov(aa, qqKF)
+        initV = np.eye(initX.shape[0]) * 1e-7
+
+        # TODO - Parei aqui - Linha 19 do run_Ksmoother - Rodar o KF em si
 
     def _get_quarterly_df(self):
         df = self.data
@@ -1016,6 +1027,11 @@ class CRBVAR(object):
         return df_quarterly
 
     def _build_monthly_ss(self, beta, sigma):
+        """
+        Yt = c1 + CC @ Xt
+        Xt+1 = C2 + AA @ Xt
+        """
+
         qqflag = False
         k, n = beta.shape
         lags = int((k - 1) / n)
@@ -1028,7 +1044,7 @@ class CRBVAR(object):
         C2 = np.zeros(n * lags)  # constant
         C2[0:n] = beta[0, :].T
 
-        # useful elements of measurement equation
+        # measurement equation
         CC = np.zeros((n, n * lags))  # maps first n states (current month) into observables
         CC[0:n, 0:n] = np.eye(n)
 
@@ -1045,13 +1061,33 @@ class CRBVAR(object):
                                                                      aa2[n:, 0:n],
                                                                      rcond=None)[0]
             Lambda, PP = np.linalg.eig(kronmat)
-            PPinv = np.linalg.inv(PP)
+            PPinv = np.linalg.inv(PP)  # TODO this could be optimized
+            invmat = np.kron(PP, PP) @ (np.kron(PPinv, PPinv) / (1 + np.kron(Lambda, Lambda)))
+
         else:
-            pass
+            kronmat = aa
+            Lambda, PP = np.linalg.eig(kronmat)
+            PPinv = np.linalg.inv(PP)  # TODO this could be optimized
+            invmat = np.kron(PP, PP) @ (np.kron(PPinv, PPinv) / (1 + np.kron(Lambda, Lambda) +
+                                                                 np.kron(Lambda ** 2, Lambda ** 2)))
 
-        # TODO - Parei aqui - Linha 33 do build_monthly_ss
+        qq = (invmat @ sigma.reshape(-1, 1)).reshape(n, n)
+        try:
+            qq = 0.5 * (qq + qq.T)
+            bb = np.linalg.cholesky(qq)
 
-        return AA, BB, C2, VV, DD, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig
+        except np.linalg.LinAlgError:
+            d, v = np.linalg.eig(qq)
+            d[d<0] = 1e-10
+            qq = v @ (v.T * d)
+            bb = np.linalg.cholesky(qq)
+            qqflag = True
+
+        c2 = np.linalg.inv(np.eye(aa.shape[0]) + aa + aa2) @ C2
+        maxEig = np.abs(Lambda).max()
+        minEig = np.abs(Lambda).min()
+
+        return AA, BB, C2, aa, bb, qq, c2, c1, CC, qqflag, maxEig, minEig
 
     @staticmethod
     def _cuberoot(A):
