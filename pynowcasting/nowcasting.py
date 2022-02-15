@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import numpy.ma as ma
 from scipy.special import gammaln
+from pykalman import KalmanFilter
 from pynowcasting.pycsminwel import csminwel
 
 
@@ -940,7 +942,7 @@ class CRBVAR(object):
                  sur=1,  # TODO Set Boolean
                  noc=1,  # TODO Set Boolean
                  fcast=1,  # TODO Set Boolean
-                 hz=8,
+                 hz=36,
                  mcmc=0,  # TODO Set Boolean
                  ndraws=20000,
                  ndrawsdiscard=10000,  # TODO set to 'ndraws/2'
@@ -1000,7 +1002,7 @@ class CRBVAR(object):
         sigmahat = self.bvar_quarterly.sigmahat
         k, n = betahat.shape
 
-        AA, BB, C2, aa, bb, qq, c2, c1, CC, qqFlag, maxEig, minEig = self._build_monthly_ss(betahat, sigmahat)
+        _, _, _, aa, _, qq, c2, c1, CC, _, _, _ = self._build_monthly_ss(betahat, sigmahat)
 
         qqKF = np.zeros((n * lags, n * lags))
         qqKF[:n, :n] = qq
@@ -1010,7 +1012,25 @@ class CRBVAR(object):
         # initV = solve_discrete_lyapunov(aa, qqKF)
         initV = np.eye(initX.shape[0]) * 1e-7
 
-        # TODO - Parei aqui - Linha 19 do run_Ksmoother - Rodar o KF em si
+        kf = KalmanFilter(transition_matrices=aa,
+                          transition_offsets=c2,
+                          transition_covariance=qqKF,
+                          observation_matrices=CC,
+                          observation_offsets=c1,
+                          observation_covariance=np.zeros((n, n)),
+                          initial_state_mean=initX,
+                          initial_state_covariance=initV)
+
+        # Data format for Kalman Filter
+        kf_data = ma.masked_invalid(self.data.values)
+        self.logLik = kf.loglikelihood(kf_data)
+
+        new_index = pd.date_range(start=self.data.index[0], periods=self.data.shape[0] + hz, freq='M')
+        forecast_vector = ma.masked_invalid(self.data.reindex(new_index).values)
+
+        self.smoothed_states = forecasts = pd.DataFrame(data=kf.smooth(forecast_vector)[0][:, :2],
+                                                        index=new_index,
+                                                        columns=self.data.columns)
 
     def _get_quarterly_df(self):
         df = self.data
