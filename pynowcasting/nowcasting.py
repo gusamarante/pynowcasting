@@ -1028,7 +1028,7 @@ class CRBVAR(object):
         new_index = pd.date_range(start=self.data.index[0], periods=self.data.shape[0] + hz, freq='M')
         forecast_vector = ma.masked_invalid(self.data.reindex(new_index).values)
 
-        self.smoothed_states = forecasts = pd.DataFrame(data=kf.smooth(forecast_vector)[0][:, :2],
+        self.smoothed_states = forecasts = pd.DataFrame(data=kf.smooth(forecast_vector)[0][:, :n],
                                                         index=new_index,
                                                         columns=self.data.columns)
 
@@ -1059,7 +1059,7 @@ class CRBVAR(object):
         # state equations
         AA = np.zeros((n * lags, n * lags))  # Autoregressive coefficients
         AA[0:n, :] = beta[1:, :].T
-        AA[n:, 0:-2] = np.eye(n * (lags - 1))
+        AA[n:, 0:-n] = np.eye(n * (lags - 1))
 
         C2 = np.zeros(n * lags)  # constant
         C2[0:n] = beta[0, :].T
@@ -1092,14 +1092,14 @@ class CRBVAR(object):
                                                                  np.kron(Lambda ** 2, Lambda ** 2)))
 
         qq = (invmat @ sigma.reshape(-1, 1)).reshape(n, n)
+        qq = 0.5 * (qq + qq.T)
         try:
-            qq = 0.5 * (qq + qq.T)
             bb = np.linalg.cholesky(qq)
 
         except np.linalg.LinAlgError:
             d, v = np.linalg.eig(qq)
-            d[d<0] = 1e-10
-            qq = v @ (v.T * d)
+            d[d < 0] = 1e-10
+            qq = v @ np.diag(np.abs(d)) @ np.matrix(v).H
             bb = np.linalg.cholesky(qq)
             qqflag = True
 
