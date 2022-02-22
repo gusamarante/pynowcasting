@@ -38,6 +38,11 @@ for var in var2dessaz:
 bvar = CRBVAR(data=df_mf, lags=5, verbose=True,
               mnalpha=1, mnpsi=1, sur=1, noc=1, mcmc=0, fcast=0)
 
-df_mf['GDP (SA)'].plot(marker='o')
-bvar.smoothed_states['GDP (SA)'].plot()
+np.exp(df_mf['GDP (SA)']).plot(marker='o')
+np.exp(bvar.smoothed_states['GDP (SA)']).plot()
+plt.show()
+
+# Growth
+np.exp(df_mf['GDP (SA)']).plot(marker='o')
+np.exp(bvar.smoothed_states['GDP (SA)']).plot()
 plt.show()
