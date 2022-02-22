@@ -950,15 +950,22 @@ class CRBVAR(object):
                  mcmcfcast=1,  # TODO Set Boolean
                  mcmcstorecoef=1,  # TODO Set Boolean
                  verbose=False,
-                 crit=1e-16):
+                 crit=1e-16,
+                 resample_method='full'):
 
         # TODO Documentation: Assumes data has a monthly frequency (Still need to treat daily data)
 
         assert data.index.inferred_freq == 'M', "input 'data' must be monthly and recognized by pandas."
 
         self.data = data
-        # self.data_quarterly = self._get_quarterly_df()
-        self.data_quarterly = data.resample('Q').last().dropna()  # TODO this is temporary, to match MATLAB
+
+        if resample_method == 'full':
+            self.data_quarterly = self._get_quarterly_df()
+        elif resample_method == 'last':
+            self.data_quarterly = data.resample('Q').last().dropna()
+        else:
+            raise NotImplementedError('resample method not implemented')
+
         self.lags = lags
         self.hyperpriors = hyperpriors
         self.vc = vc
@@ -1027,19 +1034,26 @@ class CRBVAR(object):
 
         new_index = pd.date_range(start=self.data.index[0], periods=self.data.shape[0] + hz, freq='M')
         forecast_vector = ma.masked_invalid(self.data.reindex(new_index).values)
+        smoothed_states = kf.smooth(forecast_vector)[0][:, :n]
 
-        self.smoothed_states = forecasts = pd.DataFrame(data=kf.smooth(forecast_vector)[0][:, :n],
-                                                        index=new_index,
-                                                        columns=self.data.columns)
+        self.smoothed_states = pd.DataFrame(data=smoothed_states,
+                                            index=new_index,
+                                            columns=self.data.columns)
 
     def _get_quarterly_df(self):
         df = self.data
 
         df = df.dropna(how='all')
-        is_quarterly = df.isna().mean(axis=0) != 0
+
+        is_quarterly = pd.Series(index=df.columns)
+        for col in df.columns:
+            freq = pd.infer_freq(df[col].dropna().index)
+            is_quarterly.loc[col] = freq[0] == 'Q'
+
         quarterly_variables = list(is_quarterly[is_quarterly].index)
         obs2keep = df.drop(quarterly_variables, axis=1)
         obs2keep = obs2keep.resample('Q').count() == 3
+        obs2keep = obs2keep.all(axis=1)
 
         df_quarterly = df.resample('Q').mean()
         df_quarterly = df_quarterly[obs2keep.values]
