@@ -1012,11 +1012,10 @@ class CRBVAR(object):
         _, _, _, aa, _, qq, c2, c1, CC, _, _, _ = self._build_monthly_ss(betahat, sigmahat)
 
         qqKF = np.zeros((n * lags, n * lags))
-        qqKF[:n, :n] = qq
+        qqKF[:n, :n] = qq.real
 
         # Next line is just a weird reshaping of the starting state
-        initX = np.flip(self.data_quarterly.iloc[:lags].values, axis=0).T.reshape(-1, 1, order='F').reshape(-1)  # TODO Shouldn't this be .iloc[-lags:] ?
-        # initV = solve_discrete_lyapunov(aa, qqKF)
+        initX = np.flip(self.data_quarterly.iloc[:lags].values, axis=0).T.reshape(-1, 1, order='F').reshape(-1)
         initV = np.eye(initX.shape[0]) * 1e-7
 
         kf = KalmanFilter(transition_matrices=aa,
