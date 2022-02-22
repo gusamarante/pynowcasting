@@ -1008,7 +1008,7 @@ class CRBVAR(object):
         qqKF[:n, :n] = qq
 
         # Next line is just a weird reshaping of the starting state
-        initX = np.flip(self.data_quarterly.iloc[-(lags+1):-1].values, axis=0).T.reshape(-1, 1, order='F').reshape(-1)  # TODO Shouldn't this be .iloc[-lags:] ?
+        initX = np.flip(self.data_quarterly.iloc[:lags].values, axis=0).T.reshape(-1, 1, order='F').reshape(-1)  # TODO Shouldn't this be .iloc[-lags:] ?
         # initV = solve_discrete_lyapunov(aa, qqKF)
         initV = np.eye(initX.shape[0]) * 1e-7
 
