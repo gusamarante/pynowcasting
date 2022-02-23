@@ -9,76 +9,60 @@ from pynowcasting.pycsminwel import csminwel
 
 class BVARGLP(object):
 
-    def __init__(self,
-                 data,
-                 lags,
-                 hyperpriors=1,  # TODO Set Boolean
-                 vc=10e6,
-                 pos=None,  # TODO Implement based on the variable names
-                 mnpsi=1,  # TODO Set Boolean
-                 mnalpha=0,  # TODO Set Boolean
-                 sur=1,  # TODO Set Boolean
-                 noc=1,  # TODO Set Boolean
-                 fcast=1,  # TODO Set Boolean
-                 hz=8,
-                 mcmc=0,  # TODO Set Boolean
-                 ndraws=20000,
-                 ndrawsdiscard=10000,  # TODO set to 'ndraws/2'
-                 mcmcconst=1,
-                 mcmcfcast=1,  # TODO Set Boolean
-                 mcmcstorecoef=1,  # TODO Set Boolean
-                 verbose=False,
-                 crit=1e-16):
+    def __init__(self, data, lags, hz=8, vc=10e6, stationary_prior=None, crit=1e-16,
+                 hyperpriors=True, mnpsi=True, mnalpha=False, sur=True, noc=True,
+                 fcast=False, mcmc=False, ndraws=20000, ndrawsdiscard=None, mcmcconst=1,
+                 mcmcfcast=True, mcmcstorecoef=True, verbose=False):
         # TODO rewrite documentation according to variable usage
         """
         This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP
-        :param hyperpriors: 0 = no priors on hyperparameters
-                            1 = reference priors on hyperparameters (default)
+        :param hyperpriors: False = no priors on hyperparameters
+                            True = reference priors on hyperparameters (default)
                             [NOTE: hyperpriors on psi calibrated for data expressed in
                             4 x logs, such as 4 x log(GDP). Thus if interest rate is in
                             percentage, divide by 100]
         :param vc: prior variance in the MN prior for the coefficients multiplying
                     the contant term (Default: vc=10e6)
-        :param pos: position of the variables that enter the VAR in first  # TODO this should change to variable name, not variable position
-                     differences and for which one might want to set the prior mean
-                     on the coefficient on the first own lag in the MN prior and the
-                     prior mean of the sum-of-coefficients prior to 0 (instead of 1)
-                     (Default: pos=[])
-        :param mnpsi: 0 = diagonal elements of the scale matrix of the IW prior on
-                       the covariance of the residuals NOT treated as
-                       hyperparameters (set to the residual variance of an AR(1))
-                       1 = diagonal elements of the scale matrix of the IW prior on
-                       the covariance of the residuals treated as
-                       hyperparameters (default)
-        :param mnalpha:  0 = Lag-decaying parameter of the MN prior set to 2 and
+        :param stationary_prior: name of the variables that enter the VAR in first
+                                 differences and for which one might want to set the prior mean
+                                 on the coefficient on the first own lag in the MN prior and the
+                                 prior mean of the sum-of-coefficients prior to 0 (instead of 1)
+                                 (Default: pos=[])
+        :param mnpsi: False = diagonal elements of the scale matrix of the IW prior on
+                      the covariance of the residuals NOT treated as
+                      hyperparameters (set to the residual variance of an AR(1))
+                      True = diagonal elements of the scale matrix of the IW prior on
+                      the covariance of the residuals treated as
+                      hyperparameters (default)
+        :param mnalpha:  False = Lag-decaying parameter of the MN prior set to 2 and
                          NOT treated as hyperparameter (default)
-                         1 = Lag-decaying parameter of the MN prior treated as
+                         True = Lag-decaying parameter of the MN prior treated as
                          hyperparameter
-        :param sur: 0 = single-unit-root prior is OFF
-                    1 = single-unit-root prior is ON and its std is treated as an
+        :param sur: False = single-unit-root prior is OFF
+                    True = single-unit-root prior is ON and its std is treated as an
                     hyperparameter (default)
-        :param noc: 0 = no-cointegration (sum-of coefficients) prior is OFF
-                    1 = no-cointegration (sum-of coefficients) is ON and its std is
+        :param noc: False = no-cointegration (sum-of coefficients) prior is OFF
+                    True = no-cointegration (sum-of coefficients) is ON and its std is
                     treated as an hyperparameter (default)
-        :param fcast: 0 = does not generate forecasts at the posterior mode
-                      1 = generates forecasts at the posterior mode (default)
+        :param fcast: False = does not generate forecasts at the posterior mode
+                      True = generates forecasts at the posterior mode (default)
         :param hz: longest horizon at which the code generates forecasts
                    (default: hz=8)
-        :param mcmc: 0 = does not run the MCMC (default)
-                     1 = runs the MCMC after the maximization
+        :param mcmc: False = does not run the MCMC (default)
+                     True = runs the MCMC after the maximization
         :param ndraws: number of draws in the MCMC (default: Ndraws=20000)
         :param ndrawsdiscard: number of draws initially discarded to allow convergence
                               in the in the MCMC (default=Ndraws/2)
         :param mcmcconst: scaling constant for the MCMC (should be calibrated to achieve
                           an acceptance rate of approx 25%) (default: MCMCconst=1)
-        :param mcmcfcast: 0 = does not generate forecasts when running the MCMC
-                          1 = generates forecasts while running the MCMC
+        :param mcmcfcast: False = does not generate forecasts when running the MCMC
+                          True = generates forecasts while running the MCMC
                           (for each draw of the hyperparameters the code takes a
                           draw of the VAR coefficients and shocks, and generates
                           forecasts at horizons hz) (default).
-        :param mcmcstorecoef: 0 = does not store the MCMC draws of the VAR
+        :param mcmcstorecoef: False = does not store the MCMC draws of the VAR
                               coefficients and residual covariance matrix
-                              1 = stores the MCMC draws of the VAR coefficients and
+                              True = stores the MCMC draws of the VAR coefficients and
                               residual covariance matrix (default)
         :param verbose: Prints relevant information during the estimation.
         """
@@ -89,7 +73,13 @@ class BVARGLP(object):
         self.lags = lags
         self.hyperpriors = hyperpriors
         self.vc = vc
-        self.pos = pos
+        self.stationary_prior = stationary_prior
+
+        if stationary_prior is None:
+            self.pos = None
+        else:
+            self.pos = [self.data.columns.get_loc(var) for var in stationary_prior]
+
         self.mnalpha = mnalpha
         self.mnpsi = mnpsi
         self.sur = sur
@@ -98,7 +88,7 @@ class BVARGLP(object):
         self.hz = hz
         self.mcmc = mcmc
         self.ndraws = ndraws
-        self.ndrwasdiscard = ndrawsdiscard
+        self.ndrwasdiscard = int(ndraws/2) if ndrawsdiscard is None else ndrawsdiscard
         self.mcmccosnt = mcmcconst
         self.mcmcfcast = mcmcfcast
         self.mcmcstorecoef = mcmcstorecoef
@@ -112,12 +102,16 @@ class BVARGLP(object):
         self._set_priors()
         self._regressor_matrix_ols()
         self._minimization()
-        self._forecasts()
-        self._mcmc()
+
+        if self.fcast:
+            self._forecasts()
+
+        if self.mcmc:
+            self._mcmc()
 
     def _set_priors(self):
         # Sets up the default choices for the priors of the BVAR of Giannone, Lenza and Primiceri (2012)
-        if self.hyperpriors == 1:
+        if self.hyperpriors:
             # hyperprior mode
             mode_lambda = 0.2
             mode_miu = 1
@@ -134,7 +128,8 @@ class BVARGLP(object):
             priorcoef = pd.DataFrame(index=['lambda', 'miu', 'theta', 'alpha', 'beta'],
                                      columns=['r_k', 'r_theta', 'PSI'])
 
-            priorcoef.loc['lambda', 'r_k'], priorcoef.loc['lambda', 'r_theta'] = self._gamma_coef(mode_lambda, sd_lambda)
+            priorcoef.loc['lambda', 'r_k'], priorcoef.loc['lambda', 'r_theta'] = \
+                self._gamma_coef(mode_lambda, sd_lambda)
             priorcoef.loc['miu', 'r_k'], priorcoef.loc['miu', 'r_theta'] = self._gamma_coef(mode_miu, sd_miu)
             priorcoef.loc['theta', 'r_k'], priorcoef.loc['theta', 'r_theta'] = self._gamma_coef(mode_theta, sd_theta)
             priorcoef.loc['alpha', 'PSI'] = scalePSI
@@ -203,19 +198,19 @@ class BVARGLP(object):
         # Transforming inputs to unbounded and builds the initial guess
         x0 = np.array([-np.log((self.lambda_max - self.lambda0) / (self.lambda0 - self.lambda_min))])
 
-        if self.mnpsi == 1:
+        if self.mnpsi:
             inpsi = -np.log((self.psi_max - self.psi0) / (self.psi0 - self.psi_min))
             x0 = np.concatenate((x0, inpsi))
 
-        if self.sur == 1:
+        if self.sur:
             intheta = np.array([-np.log((self.theta_max - self.theta0) / (self.theta0 - self.theta_min))])
             x0 = np.concatenate((x0, intheta))
 
-        if self.noc == 1:
+        if self.noc:
             inmiu = np.array([-np.log((self.miu_max - self.miu0) / (self.miu0 - self.miu_min))])
             x0 = np.concatenate((x0, inmiu))
 
-        if self.mnalpha == 1:
+        if self.mnalpha:
             inalpha = np.array([-np.log((self.alpha_max - self.alpha0) / (self.alpha0 - self.alpha_min))])
             x0 = np.concatenate((x0, inalpha))
 
@@ -244,40 +239,40 @@ class BVARGLP(object):
         self.theta = self.theta_max
         self.miu = self.miu_max
 
-        if self.mnpsi == 1:
+        if self.mnpsi:
             # diagonal elements of the scale matrix of the IW prior on the residual variance
-            self.psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-xh[1:self.n + 1]))  # TODO this needs to be checked
+            self.psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-xh[1:self.n + 1]))
 
-            if self.sur == 1:
+            if self.sur:
                 # std of sur prior at the peak
                 self.theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-xh[self.n + 1]))
 
-                if self.noc == 1:
+                if self.noc:
                     # std of noc prior at the peak
                     self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[self.n + 2]))
 
             else:  # self.sur == 0
-                if self.noc == 1:
+                if self.noc:
                     # std of noc prior at the peak
                     self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[self.n + 1]))
 
         else:  # self.mnpsi == 0
             self.psi = self.SS
 
-            if self.sur == 1:
+            if self.sur:
                 # std of sur prior at the peak
                 self.theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-xh[1]))
 
-                if self.noc == 1:
+                if self.noc:
                     # std of noc prior at the peak
                     self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[2]))
 
-            else:  # self.sur == 0
-                if self.noc == 1:
+            else:
+                if self.noc:
                     # std of noc prior at the peak
                     self.miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-xh[1]))
 
-        if self.mnalpha == 0:
+        if not self.mnalpha:
             self.alpha = 2
         else:
             # Lag-decaying parameter of the MN prior
@@ -285,191 +280,190 @@ class BVARGLP(object):
 
     def _forecasts(self):
         # Forecasts ate the posterior mode
-        if self.fcast == 1:
-            Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
-            for tau in range(self.hz):
-                indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
-                xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
-                Y[self.T + tau, :] = xT @ self.betahat
+        Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
+        for tau in range(self.hz):
+            indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
+            xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
+            Y[self.T + tau, :] = xT @ self.betahat
 
-            self.forecast = Y[-self.hz:, :]
+        self.forecast = Y[-self.hz:, :]
 
     def _mcmc(self):
-        if self.mcmc == 1:  # TODO this check could go somewhere else
-            # Jacobian of the transformation of the hyperparameters that has been
-            # used for the constrained maximization
-            JJ = np.exp(self.xh) / ((1 + np.exp(self.xh)) ** 2)
-            JJ[0] = (self.lambda_max - self.lambda_min) * JJ[0]
+        # Jacobian of the transformation of the hyperparameters that has been
+        # used for the constrained maximization
+        JJ = np.exp(self.xh) / ((1 + np.exp(self.xh)) ** 2)
+        JJ[0] = (self.lambda_max - self.lambda_min) * JJ[0]
 
-            if self.mnpsi == 1:
-                JJ[1: self.n + 1] = (self.psi_max - self.psi_min) * JJ[1: self.n + 1]
+        if self.mnpsi:
+            JJ[1: self.n + 1] = (self.psi_max - self.psi_min) * JJ[1: self.n + 1]
 
-                if self.sur == 1:
-                    JJ[self.n + 1] = (self.theta_max - self.theta_min) * JJ[self.n + 1]
+            if self.sur:
+                JJ[self.n + 1] = (self.theta_max - self.theta_min) * JJ[self.n + 1]
 
-                    if self.noc == 1:
-                        JJ[self.n + 2] = (self.miu_max - self.miu_min) * JJ[self.n + 2]
+                if self.noc:
+                    JJ[self.n + 2] = (self.miu_max - self.miu_min) * JJ[self.n + 2]
 
-                else:  # self.sur == 0
-                    if self.noc == 1:
-                        JJ[self.n + 1] = (self.miu_max - self.miu_min) * JJ[self.n + 1]
-
-            else:  # self.mnpsi == 0
-
-                if self.sur == 1:
-                    JJ[1] = (self.theta_max - self.theta_min) * JJ[1]
-
-                    if self.noc == 1:
-                        JJ[2] = (self.miu_max - self.miu_min) * JJ[2]
-
-                else:  # self.sur == 0
-                    if self.noc == 1:
-                        JJ[1] = (self.miu_max - self.miu_min) * JJ[1]
-
-            if self.mnalpha == 1:
-                JJ[-1] = (self.alpha_max - self.alpha_min) * JJ[-1]
-
-            JJ = np.diag(JJ)
-            HH = JJ @ self.h @ JJ
-
-            # Regularization to assure that HH is positive-definite
-            eigval, eigvec = np.linalg.eig(HH)
-            HH = eigvec @ np.diag(np.abs(eigval)) @ eigvec.T
-
-            # recovering the posterior mode
-            postmode = np.array([self.lamb])
-
-            if self.mnpsi == 1:
-                modepsi = np.array(self.psi)
-                postmode = np.concatenate((postmode, modepsi))
-
-            if self.sur == 1:
-                modetheta = np.array([self.theta])
-                postmode = np.concatenate((postmode, modetheta))
-
-            if self.noc == 1:
-                modemiu = np.array([self.miu])
-                postmode = np.concatenate((postmode, modemiu))
-
-            if self.mnalpha == 1:
-                modealpha = np.array([self.alpha])
-                postmode = np.concatenate((postmode, modealpha))
-
-            # starting value of the Metropolis algorithm
-            P = np.zeros((self.ndraws, self.xh.shape[0]))
-            logMLold = -10e15
-            while logMLold == -10e15:  # TODO is this correct? This should be '<='
-                P[0, :] = np.random.multivariate_normal(mean=postmode,
-                                                        cov=(self.mcmccosnt ** 2) * HH)
-                logMLold, betadrawold, sigmadrawold = self._logmlvar_formcmc(P[0])
-
-            # matrix to store the draws of the VAR coefficients if MCMCstorecoeff is on
-            if self.mcmcstorecoef == 1:
-                mcmc_beta = np.zeros((self.k, self.n, self.ndraws - self.ndrwasdiscard))
-                mcmc_sigma = np.zeros((self.n, self.n, self.ndraws - self.ndrwasdiscard))
             else:
-                mcmc_beta = None
-                mcmc_sigma = None
+                if self.noc:
+                    JJ[self.n + 1] = (self.miu_max - self.miu_min) * JJ[self.n + 1]
 
-            # matrix to store the forecasts if MCMCfcast is on
-            if self.mcmcfcast == 1:
-                mcmc_Dforecast = np.zeros((self.hz, self.n, self.ndraws - self.ndrwasdiscard))
+        else:
+
+            if self.sur:
+                JJ[1] = (self.theta_max - self.theta_min) * JJ[1]
+
+                if self.noc:
+                    JJ[2] = (self.miu_max - self.miu_min) * JJ[2]
+
             else:
-                mcmc_Dforecast = None
+                if self.noc:
+                    JJ[1] = (self.miu_max - self.miu_min) * JJ[1]
 
-            # Metropolis iterations
-            count = 0
-            for i in tqdm(range(1, self.ndraws), 'MCMC Iterations', disable=not self.verbose):
-                # draw candidate value
-                P[i, :] = np.random.multivariate_normal(mean=P[i - 1, :],
-                                                        cov=(self.mcmccosnt ** 2) * HH)
-                logMLnew, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
+        if self.mnalpha:
+            JJ[-1] = (self.alpha_max - self.alpha_min) * JJ[-1]
 
-                if logMLnew > logMLold:  # if there is an improvement, accept it
+        JJ = np.diag(JJ)
+        HH = JJ @ self.h @ JJ
+
+        # Regularization to assure that HH is positive-definite
+        eigval, eigvec = np.linalg.eig(HH)
+        HH = eigvec @ np.diag(np.abs(eigval)) @ eigvec.T
+
+        # recovering the posterior mode
+        postmode = np.array([self.lamb])
+
+        if self.mnpsi:
+            modepsi = np.array(self.psi)
+            postmode = np.concatenate((postmode, modepsi))
+
+        if self.sur:
+            modetheta = np.array([self.theta])
+            postmode = np.concatenate((postmode, modetheta))
+
+        if self.noc:
+            modemiu = np.array([self.miu])
+            postmode = np.concatenate((postmode, modemiu))
+
+        if self.mnalpha:
+            modealpha = np.array([self.alpha])
+            postmode = np.concatenate((postmode, modealpha))
+
+        # starting value of the Metropolis algorithm
+        P = np.zeros((self.ndraws, self.xh.shape[0]))
+        logMLold = -10e15
+        while logMLold == -10e15:  # TODO is this correct? This should be '<='
+            P[0, :] = np.random.multivariate_normal(mean=postmode,
+                                                    cov=(self.mcmccosnt ** 2) * HH)
+            logMLold, betadrawold, sigmadrawold = self._logmlvar_formcmc(P[0])
+
+        # matrix to store the draws of the VAR coefficients if MCMCstorecoeff is on
+        if self.mcmcstorecoef:
+            mcmc_beta = np.zeros((self.k, self.n, self.ndraws - self.ndrwasdiscard))
+            mcmc_sigma = np.zeros((self.n, self.n, self.ndraws - self.ndrwasdiscard))
+        else:
+            mcmc_beta = None
+            mcmc_sigma = None
+
+        # matrix to store the forecasts if MCMCfcast is on
+        if self.mcmcfcast:
+            mcmc_Dforecast = np.zeros((self.hz, self.n, self.ndraws - self.ndrwasdiscard))
+        else:
+            mcmc_Dforecast = None
+
+        # Metropolis iterations
+        count = 0
+        for i in tqdm(range(1, self.ndraws), 'MCMC Iterations', disable=not self.verbose):
+            # draw candidate value
+            P[i, :] = np.random.multivariate_normal(mean=P[i - 1, :],
+                                                    cov=(self.mcmccosnt ** 2) * HH)
+            logMLnew, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
+
+            if logMLnew > logMLold:  # if there is an improvement, accept it
+                logMLold = logMLnew
+                count = count + 1
+            else:  # If there is no improvement, there is a chance to accept the draw
+                if np.random.rand() < np.exp(logMLnew - logMLold):  # If accetpted
                     logMLold = logMLnew
                     count = count + 1
-                else:  # If there is no improvement, there is a chance to accept the draw
-                    if np.random.rand() < np.exp(logMLnew - logMLold):  # If accetpted
-                        logMLold = logMLnew
-                        count = count + 1
-                    else:  # If not accepted, overwrite the draw with the last value
-                        P[i, :] = P[i - 1, :]
+                else:  # If not accepted, overwrite the draw with the last value
+                    P[i, :] = P[i - 1, :]
 
-                        # if MCMCfcast is on, take a new draw of the VAR coefficients with
-                        # the old hyperparameters if have rejected the new ones
-                        if (self.mcmcfcast == 1) or (self.mcmcstorecoef == 1):
-                            _, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
+                    # if MCMCfcast is on, take a new draw of the VAR coefficients with
+                    # the old hyperparameters if have rejected the new ones
+                    if self.mcmcfcast or self.mcmcstorecoef:
+                        _, betadrawnew, sigmadrawnew = self._logmlvar_formcmc(P[i, :])
 
-                # stores draws of VAR coefficients if MCMCstorecoeff is on
-                if (i >= self.ndrwasdiscard) and (self.mcmcstorecoef == 1):
-                    mcmc_beta[:, :, i - self.ndrwasdiscard] = betadrawnew
-                    mcmc_sigma[:, :, i - self.ndrwasdiscard] = sigmadrawnew
+            # stores draws of VAR coefficients if MCMCstorecoeff is on
+            if (i >= self.ndrwasdiscard) and self.mcmcstorecoef:
+                mcmc_beta[:, :, i - self.ndrwasdiscard] = betadrawnew
+                mcmc_sigma[:, :, i - self.ndrwasdiscard] = sigmadrawnew
 
-                # produce and store the forecasts if MCMCfcast is on
-                if (i >= self.ndrwasdiscard) and self.mcmcfcast == 1:
-                    Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
-                    for tau in range(self.hz):
-                        indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
-                        xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
-                        Y[self.T + tau, :] = xT @ betadrawnew + np.random.multivariate_normal(mean=np.zeros(self.n),
-                                                                                              cov=sigmadrawnew)
+            # produce and store the forecasts if MCMCfcast is on
+            if (i >= self.ndrwasdiscard) and self.mcmcfcast:
+                Y = np.vstack([self.y, np.zeros((self.hz, self.n))])
+                for tau in range(self.hz):
+                    indexes = list(range(self.T + tau - 1, self.T + tau - self.lags - 1, -1))
+                    xT = np.vstack([1, Y[indexes].T.reshape((self.k - 1, 1), order="F")]).T
+                    Y[self.T + tau, :] = xT @ betadrawnew + np.random.multivariate_normal(mean=np.zeros(self.n),
+                                                                                          cov=sigmadrawnew)
 
-                    mcmc_Dforecast[:, :, i - self.ndrwasdiscard] = Y[-self.hz:, :]
+                mcmc_Dforecast[:, :, i - self.ndrwasdiscard] = Y[-self.hz:, :]
 
-            # store the draws of the hyperparameters
-            mcmc_lambda = P[self.ndrwasdiscard:, 0]  # Standard Minesota Prior
+        # store the draws of the hyperparameters
+        mcmc_lambda = P[self.ndrwasdiscard:, 0]  # Standard Minesota Prior
 
-            mcmc_psi = None
-            mcmc_theta = None
-            mcmc_miu = None
+        mcmc_psi = None
+        mcmc_theta = None
+        mcmc_miu = None
 
-            if self.mnpsi == 1:
-                # diagonal elements of the scale matrix of the IW prior on the residual variance
-                mcmc_psi = P[self.ndrwasdiscard:, 1:self.n+2]
+        if self.mnpsi:
+            # diagonal elements of the scale matrix of the IW prior on the residual variance
+            mcmc_psi = P[self.ndrwasdiscard:, 1:self.n+2]
 
-                if self.sur == 1:
-                    # std of sur prior
-                    mcmc_theta = P[self.ndrwasdiscard:, self.n + 1]
+            if self.sur:
+                # std of sur prior
+                mcmc_theta = P[self.ndrwasdiscard:, self.n + 1]
 
-                    if self.noc == 1:
-                        # std of noc prior
-                        mcmc_miu = P[self.ndrwasdiscard:, self.n + 2]
+                if self.noc:
+                    # std of noc prior
+                    mcmc_miu = P[self.ndrwasdiscard:, self.n + 2]
 
-                else:  # self.sur == 0
-                    if self.noc == 1:
-                        # std of noc prior
-                        mcmc_miu = P[self.ndrwasdiscard:, self.n + 1]
+            else:  # self.sur == 0
+                if self.noc:
+                    # std of noc prior
+                    mcmc_miu = P[self.ndrwasdiscard:, self.n + 1]
 
-            else:  # self.mnpsi == 0
-                if self.sur == 1:
-                    # std of sur prior
-                    mcmc_theta = P[self.ndrwasdiscard:, 1]
+        else:  # self.mnpsi == 0
+            if self.sur:
+                # std of sur prior
+                mcmc_theta = P[self.ndrwasdiscard:, 1]
 
-                    if self.noc == 1:
-                        # std of noc prior
-                        mcmc_miu = P[self.ndrwasdiscard:, 2]
+                if self.noc:
+                    # std of noc prior
+                    mcmc_miu = P[self.ndrwasdiscard:, 2]
 
-                else:  # self.sur == 0
-                    if self.noc == 1:
-                        # std of noc prior
-                        mcmc_miu = P[self.ndrwasdiscard:, 1]
+            else:  # self.sur == 0
+                if self.noc:
+                    # std of noc prior
+                    mcmc_miu = P[self.ndrwasdiscard:, 1]
 
-            if self.mnalpha == 1:
-                # Lag-decaying parameter of the MN prior
-                mcmc_alpha = P[self.ndrwasdiscard:, -1]
+        if self.mnalpha:
+            # Lag-decaying parameter of the MN prior
+            mcmc_alpha = P[self.ndrwasdiscard:, -1]
+            self.mcmc_alpha = mcmc_alpha
 
-            mcmc_accrate = np.mean((mcmc_lambda[1:] != mcmc_lambda[:-1]))
+        mcmc_accrate = np.mean((mcmc_lambda[1:] != mcmc_lambda[:-1]))
 
-            # Save the chains as attributes
-            self.mcmc_beta = mcmc_beta
-            self.mcmc_sigma = mcmc_sigma
-            self.mcmc_dforecast = mcmc_Dforecast
-            self.mcmc_lambda = mcmc_lambda
-            self.mcmc_psi = mcmc_psi
-            self.mcmc_theta = mcmc_theta
-            self.mcmc_miu = mcmc_miu
+        # Save the chains as attributes
+        self.mcmc_beta = mcmc_beta
+        self.mcmc_sigma = mcmc_sigma
+        self.mcmc_dforecast = mcmc_Dforecast
+        self.mcmc_lambda = mcmc_lambda
+        self.mcmc_psi = mcmc_psi
+        self.mcmc_theta = mcmc_theta
+        self.mcmc_miu = mcmc_miu
 
-            self.mcmc_accrate = mcmc_accrate
+        self.mcmc_accrate = mcmc_accrate
 
     def _logmlvar_formin(self, par):
         """
@@ -478,37 +472,41 @@ class BVARGLP(object):
         residuals of the BVAR of Giannone, Lenza and Primiceri (2012)
         """
 
+        # The following avoids the warning "referenced before assignment"
+        theta = None
+        miu = None
+
         # hyperparameters
         lambda_ = self.lambda_min + (self.lambda_max - self.lambda_min) / (1 + np.exp(-par[0]))
         d = self.n + 2
 
-        if self.mnpsi == 0:
+        if not self.mnpsi:
             psi = self.SS * (d - self.n - 1)
 
-            if self.sur == 1:
+            if self.sur:
                 theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[1]))
 
-                if self.noc == 1:
+                if self.noc:
                     miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[2]))
 
-            else:  # if self.sur == 0
-                if self.noc == 1:
+            else:
+                if self.noc:
                     miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[1]))
 
-        else:  # self.mnpsi == 1
-            psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-par[1:self.n + 1]))  # TODO check the size of par
+        else:
+            psi = self.psi_min + (self.psi_max - self.psi_min) / (1 + np.exp(-par[1:self.n + 1]))
 
-            if self.sur == 1:
-                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[self.n + 1]))  # TODO check the size of par
+            if self.sur:
+                theta = self.theta_min + (self.theta_max - self.theta_min) / (1 + np.exp(-par[self.n + 1]))
 
-                if self.noc == 1:
-                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 2]))  # TODO check the size of par
+                if self.noc:
+                    miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 2]))
 
-            else:  # if self.sur == 0
-                if self.noc == 1:
+            else:
+                if self.noc:
                     miu = self.miu_min + (self.miu_max - self.miu_min) / (1 + np.exp(-par[self.n + 1]))
 
-        if self.mnalpha == 0:
+        if not self.mnalpha:
             alpha = 2
         else:  # self.mnalpha == 1
             alpha = self.alpha_min + (self.alpha_max - self.alpha_min) / (1 + np.exp(-par[-1]))
@@ -536,7 +534,7 @@ class BVARGLP(object):
         x = self.x.copy()
         T = self.T
 
-        if self.sur == 1:
+        if self.sur:
             xdsur = (1 / theta) * np.tile(self.y0, (1, self.lags))
             xdsur = np.hstack((np.array([[1 / theta]]), xdsur))
 
@@ -547,11 +545,13 @@ class BVARGLP(object):
 
             Td = Td + 1
 
-        if self.noc == 1:
+        if self.noc:
 
             ydnoc = (1 / miu) * np.diag(self.y0)
-            # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
-            # TODO ydnoc(pos, pos) = 0;
+
+            # Set to zero the prior mean on the first own lag for variables selected in the vector pos
+            if self.pos is not None:
+                ydnoc[self.pos, self.pos] = 0
 
             xdnoc = (1 / miu) * np.tile(np.diag(self.y0), (1, self.lags))
             xdnoc = np.hstack((np.zeros((self.n, 1)), xdnoc))
@@ -567,10 +567,12 @@ class BVARGLP(object):
         # Minnesota prior mean
         b = np.zeros((self.k, self.n))
         diagb = np.ones(self.n)
-        # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
-        # TODO diagb(pos) = 0
+
+        # Set to zero the prior mean on the first own lag for variables selected in the vector pos
+        if self.pos is not None:
+            diagb[self.pos] = 0
+
         b[1:self.n + 1, :] = np.diag(diagb)
-        # self.b = b
 
         # posterior mode of the VAR coefficients
         matA = x.T @ x + np.diag(1 / omega)
@@ -603,7 +605,7 @@ class BVARGLP(object):
         logML = logML - self.n * sum(np.log(eigaaa)) / 2
         logML = logML - (T + d) * sum(np.log(eigbbb)) / 2
 
-        if self.sur == 1 or self.noc == 1:
+        if self.sur or self.noc:
             yd = np.vstack((ydsur, ydnoc))
             xd = np.vstack((xdsur, xdnoc))
 
@@ -633,22 +635,22 @@ class BVARGLP(object):
             norm = norm - (T + d) * sum(np.log(eigbbb)) / 2
             logML = logML - norm
 
-        if self.hyperpriors == 1:
+        if self.hyperpriors:
             logML = logML + self._log_gammma_pdf(x=lambda_,
                                                  k=self.priorcoef.loc['lambda', 'r_k'],
                                                  theta=self.priorcoef.loc['lambda', 'r_theta'])
 
-            if self.sur == 1:
+            if self.sur:
                 logML = logML + self._log_gammma_pdf(x=theta,
                                                      k=self.priorcoef.loc['theta', 'r_k'],
                                                      theta=self.priorcoef.loc['theta', 'r_theta'])
 
-            if self.noc == 1:
+            if self.noc:
                 logML = logML + self._log_gammma_pdf(x=miu,
                                                      k=self.priorcoef.loc['miu', 'r_k'],
                                                      theta=self.priorcoef.loc['miu', 'r_theta'])
 
-            if self.mnpsi == 1:
+            if self.mnpsi:
                 toadd = self._log_invgammma_to_pdf(x=psi / (d - self.n - 1),
                                                    alpha=self.priorcoef.loc['alpha', 'PSI'],
                                                    beta=self.priorcoef.loc['beta', 'PSI'])
@@ -670,35 +672,35 @@ class BVARGLP(object):
         theta = self.theta_min
         miu = self.miu_min
 
-        if self.mnpsi == 0:
+        if not self.mnpsi:
             psi = self.SS * (d - self.n - 1)
 
-            if self.sur == 1:
+            if self.sur:
                 theta = par[1]
 
-                if self.noc == 1:
+                if self.noc:
                     miu = par[2]
 
             else:  # if self.sur == 0
-                if self.noc == 1:
+                if self.noc:
                     miu = par[1]
 
-        else:  # self.mnpsi == 1
+        else:
             psi = par[1:self.n + 1]
 
-            if self.sur == 1:
+            if self.sur:
                 theta = par[self.n + 1]
 
-                if self.noc == 1:
+                if self.noc:
                     miu = par[self.n + 2]
 
-            else:  # if self.sur == 0
-                if self.noc == 1:
+            else:
+                if self.noc:
                     miu = par[self.n + 1]
 
-        if self.mnalpha == 0:
+        if not self.mnalpha:
             alpha = 2
-        else:  # self.mnalpha == 1
+        else:
             alpha = par[-1]
 
         # Check if parameters are outside of parameter space and, if so, return a very low value of the posterior
@@ -743,7 +745,7 @@ class BVARGLP(object):
             x = self.x.copy()
             T = self.T
 
-            if self.sur == 1:
+            if self.sur:
                 xdsur = (1 / theta) * np.tile(self.y0, (1, self.lags))
                 xdsur = np.hstack((np.array([[1 / theta]]), xdsur))
 
@@ -754,7 +756,7 @@ class BVARGLP(object):
 
                 Td = Td + 1
 
-            if self.noc == 1:
+            if self.noc:
                 ydnoc = (1 / miu) * np.diag(self.y0)
                 # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
                 # TODO ydnoc(pos, pos) = 0;
@@ -806,7 +808,7 @@ class BVARGLP(object):
             logML = logML - (T + d) * sum(np.log(eigbbb)) / 2
 
             # More terms for logML in case of more priors
-            if self.sur == 1 or self.noc == 1:
+            if self.sur or self.noc:
                 yd = np.vstack((ydsur, ydnoc))
                 xd = np.vstack((xdsur, xdnoc))
 
@@ -836,29 +838,29 @@ class BVARGLP(object):
                 norm = norm - (T + d) * sum(np.log(eigbbb)) / 2
                 logML = logML - norm
 
-                if self.hyperpriors == 1:
+                if self.hyperpriors:
                     logML = logML + self._log_gammma_pdf(x=lambda_,
                                                          k=self.priorcoef.loc['lambda', 'r_k'],
                                                          theta=self.priorcoef.loc['lambda', 'r_theta'])
 
-                    if self.sur == 1:
+                    if self.sur:
                         logML = logML + self._log_gammma_pdf(x=theta,
                                                              k=self.priorcoef.loc['theta', 'r_k'],
                                                              theta=self.priorcoef.loc['theta', 'r_theta'])
 
-                    if self.noc == 1:
+                    if self.noc:
                         logML = logML + self._log_gammma_pdf(x=miu,
                                                              k=self.priorcoef.loc['miu', 'r_k'],
                                                              theta=self.priorcoef.loc['miu', 'r_theta'])
 
-                    if self.mnpsi == 1:
+                    if self.mnpsi:
                         toadd = self._log_invgammma_to_pdf(x=psi / (d - self.n - 1),
                                                            alpha=self.priorcoef.loc['alpha', 'PSI'],
                                                            beta=self.priorcoef.loc['beta', 'PSI'])
                         logML = logML + sum(toadd)
 
             # takes a draw from the posterior of SIGMA and beta, if draw is on
-            draw = (self.mcmcfcast == 1) or (self.mcmcstorecoef == 1)
+            draw = self.mcmcfcast or self.mcmcstorecoef
 
             if not draw:
                 betadraw = None  # TODO Might have to change these to empty arrays
@@ -891,16 +893,16 @@ class BVARGLP(object):
 
     @staticmethod
     def _log_invgammma_to_pdf(x, alpha, beta):
-        r = alpha * np.log(beta) - (alpha + 1) * np.log(x) - beta *(1 / x) - gammaln(alpha)
+        r = alpha * np.log(beta) - (alpha + 1) * np.log(x) - beta * (1 / x) - gammaln(alpha)
         return r
 
     @staticmethod
-    def _cholred(S):
-        d, v = np.linalg.eig((S + S.T) / 2)
+    def _cholred(s):
+        d, v = np.linalg.eig((s + s.T) / 2)
         d = d.real
-        scale = np.diag(S).mean() * 1e-12
+        scale = np.diag(s).mean() * 1e-12
         J = d > scale
-        C = np.zeros(S.shape)
+        C = np.zeros(s.shape)
         C[J, :] = (v[:, J] @ np.diag(d[J] ** 0.5)).T
         return C
 
@@ -931,27 +933,10 @@ class OLS1(object):
 
 class CRBVAR(object):
 
-    def __init__(self,
-                 data,
-                 lags,
-                 hyperpriors=1,  # TODO Set Boolean
-                 vc=10e6,
-                 pos=None,  # TODO Implement based on the variable names
-                 mnpsi=1,  # TODO Set Boolean
-                 mnalpha=0,  # TODO Set Boolean
-                 sur=1,  # TODO Set Boolean
-                 noc=1,  # TODO Set Boolean
-                 fcast=1,  # TODO Set Boolean
-                 hz=36,
-                 mcmc=0,  # TODO Set Boolean
-                 ndraws=20000,
-                 ndrawsdiscard=10000,  # TODO set to 'ndraws/2'
-                 mcmcconst=1,
-                 mcmcfcast=1,  # TODO Set Boolean
-                 mcmcstorecoef=1,  # TODO Set Boolean
-                 verbose=False,
-                 crit=1e-16,
-                 resample_method='full'):
+    def __init__(self, data, lags, hz=24, vc=10e6, stationary_prior=None, crit=1e-16,
+                 hyperpriors=True, mnpsi=True, mnalpha=False, sur=True, noc=True,
+                 fcast=False, mcmc=False, ndraws=20000, ndrawsdiscard=None, mcmcconst=1,
+                 mcmcfcast=True, mcmcstorecoef=True, verbose=False, resample_method='full'):
 
         # TODO Documentation: Assumes data has a monthly frequency (Still need to treat daily data)
 
@@ -969,7 +954,7 @@ class CRBVAR(object):
         self.lags = lags
         self.hyperpriors = hyperpriors
         self.vc = vc
-        self.pos = pos
+        self.stationary_prior = stationary_prior
         self.mnalpha = mnalpha
         self.mnpsi = mnpsi
         self.sur = sur
@@ -978,7 +963,7 @@ class CRBVAR(object):
         self.hz = hz
         self.mcmc = mcmc
         self.ndraws = ndraws
-        self.ndrwasdiscard = ndrawsdiscard
+        self.ndrwasdiscard = int(ndraws/2) if ndrawsdiscard is None else ndrawsdiscard
         self.mcmccosnt = mcmcconst
         self.mcmcfcast = mcmcfcast
         self.mcmcstorecoef = mcmcstorecoef
@@ -989,7 +974,7 @@ class CRBVAR(object):
                                       lags=lags,
                                       hyperpriors=hyperpriors,
                                       vc=vc,
-                                      pos=pos,
+                                      stationary_prior=stationary_prior,
                                       mnpsi=mnpsi,
                                       mnalpha=mnalpha,
                                       sur=sur,
@@ -1123,9 +1108,9 @@ class CRBVAR(object):
         return AA, BB, C2, aa, bb, qq, c2, c1, CC, qqflag, maxEig, minEig
 
     @staticmethod
-    def _cuberoot(A):
+    def _cuberoot(big_a):
 
-        d, v = np.linalg.eig(A)
+        d, v = np.linalg.eig(big_a)
         s = np.sign(d.real)
 
         a = v @ np.diag(((d * s) ** (1 / 3)) * s) @ np.linalg.inv(v)
