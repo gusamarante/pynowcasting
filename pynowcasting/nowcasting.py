@@ -13,61 +13,80 @@ class BVARGLP(object):
                  hyperpriors=True, mnpsi=True, mnalpha=False, sur=True, noc=True,
                  fcast=False, mcmc=False, ndraws=20000, ndrawsdiscard=None, mcmcconst=1,
                  mcmcfcast=True, mcmcstorecoef=True, verbose=False):
-        # TODO rewrite documentation according to variable usage
         """
-        This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP
-        :param hyperpriors: False = no priors on hyperparameters
+        This class implements the Bayesian VAR from Giannone, Lenza and Primiceri (2012), hence the name GLP. The main
+        idea of the models is to use multiple priors, each with their own hyperprior, in order to generate a shrinkage
+        behaviour.
+
+        This class only accepts data with a quarterly frequency and with no missign data.
+
+        @param hyperpriors: False = no priors on hyperparameters
                             True = reference priors on hyperparameters (default)
                             [NOTE: hyperpriors on psi calibrated for data expressed in
                             4 x logs, such as 4 x log(GDP). Thus if interest rate is in
                             percentage, divide by 100]
-        :param vc: prior variance in the MN prior for the coefficients multiplying
-                    the contant term (Default: vc=10e6)
-        :param stationary_prior: name of the variables that enter the VAR in first
+
+        @param vc: prior variance in the MN prior for the coefficients multiplying
+                   the contant term (Default: vc=10e6)
+
+        @param stationary_prior: names of the variables that enter the VAR in first
                                  differences and for which one might want to set the prior mean
                                  on the coefficient on the first own lag in the MN prior and the
-                                 prior mean of the sum-of-coefficients prior to 0 (instead of 1)
-                                 (Default: pos=[])
-        :param mnpsi: False = diagonal elements of the scale matrix of the IW prior on
+                                 prior mean of the sum-of-coefficients prior to 0 (instead of
+                                 the typical 1)
+
+        @param mnpsi: False = diagonal elements of the scale matrix of the IW prior on
                       the covariance of the residuals NOT treated as
                       hyperparameters (set to the residual variance of an AR(1))
                       True = diagonal elements of the scale matrix of the IW prior on
-                      the covariance of the residuals treated as
-                      hyperparameters (default)
-        :param mnalpha:  False = Lag-decaying parameter of the MN prior set to 2 and
+                      the covariance of the residuals treated as hyperparameters (default)
+
+        @param mnalpha:  False = Lag-decaying parameter of the MN prior set to 2 and
                          NOT treated as hyperparameter (default)
                          True = Lag-decaying parameter of the MN prior treated as
                          hyperparameter
-        :param sur: False = single-unit-root prior is OFF
+
+        @param sur: False = single-unit-root prior is OFF
                     True = single-unit-root prior is ON and its std is treated as an
                     hyperparameter (default)
-        :param noc: False = no-cointegration (sum-of coefficients) prior is OFF
+
+        @param noc: False = no-cointegration (sum-of coefficients) prior is OFF
                     True = no-cointegration (sum-of coefficients) is ON and its std is
                     treated as an hyperparameter (default)
-        :param fcast: False = does not generate forecasts at the posterior mode
+
+        @param fcast: False = does not generate forecasts at the posterior mode
                       True = generates forecasts at the posterior mode (default)
-        :param hz: longest horizon at which the code generates forecasts
-                   (default: hz=8)
-        :param mcmc: False = does not run the MCMC (default)
+
+        @param hz: number of quarters for which it generates forecasts (default: hz=8)
+
+        @param mcmc: False = does not run the MCMC (default)
                      True = runs the MCMC after the maximization
-        :param ndraws: number of draws in the MCMC (default: Ndraws=20000)
-        :param ndrawsdiscard: number of draws initially discarded to allow convergence
+
+        @param ndraws: number of draws in the MCMC (default: Ndraws=20000)
+
+        @param ndrawsdiscard: number of draws initially discarded to allow convergence
                               in the in the MCMC (default=Ndraws/2)
-        :param mcmcconst: scaling constant for the MCMC (should be calibrated to achieve
+
+        @param mcmcconst: scaling constant for the MCMC (should be calibrated to achieve
                           an acceptance rate of approx 25%) (default: MCMCconst=1)
-        :param mcmcfcast: False = does not generate forecasts when running the MCMC
+
+        @param mcmcfcast: False = does not generate forecasts when running the MCMC
                           True = generates forecasts while running the MCMC
                           (for each draw of the hyperparameters the code takes a
                           draw of the VAR coefficients and shocks, and generates
                           forecasts at horizons hz) (default).
-        :param mcmcstorecoef: False = does not store the MCMC draws of the VAR
+
+        @param mcmcstorecoef: False = does not store the MCMC draws of the VAR
                               coefficients and residual covariance matrix
                               True = stores the MCMC draws of the VAR coefficients and
                               residual covariance matrix (default)
-        :param verbose: Prints relevant information during the estimation.
+
+        @param verbose: Prints relevant information during the estimation.
+
+        @param crit: value for convergence criteria
         """
 
-        # TODO Check if data frequency is M or Q
+        assert data.index.inferred_freq == 'Q', "input 'data' must be quarterly and recognized by pandas."
 
         self.data = data
         self.lags = lags
@@ -141,7 +160,8 @@ class BVARGLP(object):
             self.priorcoef = None
 
     def _regressor_matrix_ols(self):
-        # TODO purpose is to construct the SS matrix
+        # purpose is to construct the SS matrix
+
         # Constructs the matrix of regressors
 
         n = self.n
@@ -351,7 +371,7 @@ class BVARGLP(object):
         # starting value of the Metropolis algorithm
         P = np.zeros((self.ndraws, self.xh.shape[0]))
         logMLold = -10e15
-        while logMLold == -10e15:  # TODO is this correct? This should be '<='
+        while logMLold == -10e15:
             P[0, :] = np.random.multivariate_normal(mean=postmode,
                                                     cov=(self.mcmccosnt ** 2) * HH)
             logMLold, betadrawold, sigmadrawold = self._logmlvar_formcmc(P[0])
@@ -717,7 +737,7 @@ class BVARGLP(object):
 
         if cond_lower_bound or cond_upper_bound:
             logML = -10e15
-            betadraw = None  # TODO Might have to change these to empty arrays
+            betadraw = None
             drawSIGMA = None
             return logML, betadraw, drawSIGMA
 
@@ -758,8 +778,8 @@ class BVARGLP(object):
 
             if self.noc:
                 ydnoc = (1 / miu) * np.diag(self.y0)
-                # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
-                # TODO ydnoc(pos, pos) = 0;
+                # Set to zero the prior mean on the first own lag for variables selected in the vector pos
+                ydnoc[self.pos, self.pos] = 0
 
                 xdnoc = (1 / miu) * np.tile(np.diag(self.y0), (1, self.lags))
                 xdnoc = np.hstack((np.zeros((self.n, 1)), xdnoc))
@@ -773,8 +793,8 @@ class BVARGLP(object):
             # minesota prior mean
             b = np.zeros((self.k, self.n))
             diagb = np.ones(self.n)
-            # TODO Set to zero the prior mean on the first own lag for variables selected in the vector pos
-            # TODO diagb(pos) = 0
+            # Set to zero the prior mean on the first own lag for variables selected in the vector pos
+            diagb[self.pos] = 0
             b[1:self.n + 1, :] = np.diag(diagb)
             # self.b = b
 
@@ -863,7 +883,7 @@ class BVARGLP(object):
             draw = self.mcmcfcast or self.mcmcstorecoef
 
             if not draw:
-                betadraw = None  # TODO Might have to change these to empty arrays
+                betadraw = None
                 drawSIGMA = None
             else:
                 S = PSI + epshat.T @ epshat + (betahat - b).T @ np.diag(1 / omega) @ (betahat - b)
@@ -908,7 +928,9 @@ class BVARGLP(object):
 
 
 class OLS1(object):
-    # TODO Documentation (Simple OLS regression)
+    """
+    This is a simple OLS regression, but with a more leaner and simple layout
+    """
 
     def __init__(self, y, x):
         self.x = x
@@ -937,8 +959,82 @@ class CRBVAR(object):
                  hyperpriors=True, mnpsi=True, mnalpha=False, sur=True, noc=True,
                  fcast=False, mcmc=False, ndraws=20000, ndrawsdiscard=None, mcmcconst=1,
                  mcmcfcast=True, mcmcstorecoef=True, verbose=False, resample_method='full'):
+        """
+        This class implements the "Cube-Root" Bayesian VAR from Climadomo, Giannone, Lenza, Monti and Sokol (2020).
+        The main idea of the models is to use the BVARGLP class to estimate a quarterly VAR and "monthlize" it for
+        a state-space model capable of dealing with missing data and mixed frequancy data.
 
-        # TODO Documentation: Assumes data has a monthly frequency (Still need to treat daily data)
+        This class only accepts data with at leaset one monthly time series. Quarterly variable are allowed but
+        must be in the same pandas.DataFrame with a monthly index.
+
+        @param hyperpriors: False = no priors on hyperparameters
+                            True = reference priors on hyperparameters (default)
+                            [NOTE: hyperpriors on psi calibrated for data expressed in
+                            4 x logs, such as 4 x log(GDP). Thus if interest rate is in
+                            percentage, divide by 100]
+
+        @param vc: prior variance in the MN prior for the coefficients multiplying
+                   the contant term (Default: vc=10e6)
+
+        @param stationary_prior: names of the variables that enter the VAR in first
+                                 differences and for which one might want to set the prior mean
+                                 on the coefficient on the first own lag in the MN prior and the
+                                 prior mean of the sum-of-coefficients prior to 0 (instead of
+                                 the typical 1)
+
+        @param mnpsi: False = diagonal elements of the scale matrix of the IW prior on
+                      the covariance of the residuals NOT treated as
+                      hyperparameters (set to the residual variance of an AR(1))
+                      True = diagonal elements of the scale matrix of the IW prior on
+                      the covariance of the residuals treated as hyperparameters (default)
+
+        @param mnalpha:  False = Lag-decaying parameter of the MN prior set to 2 and
+                         NOT treated as hyperparameter (default)
+                         True = Lag-decaying parameter of the MN prior treated as
+                         hyperparameter
+
+        @param sur: False = single-unit-root prior is OFF
+                    True = single-unit-root prior is ON and its std is treated as an
+                    hyperparameter (default)
+
+        @param noc: False = no-cointegration (sum-of coefficients) prior is OFF
+                    True = no-cointegration (sum-of coefficients) is ON and its std is
+                    treated as an hyperparameter (default)
+
+        @param fcast: False = does not generate forecasts at the posterior mode
+                      True = generates forecasts at the posterior mode (default)
+
+        @param hz: number of quarters for which it generates forecasts (default: hz=8)
+
+        @param mcmc: False = does not run the MCMC (default)
+                     True = runs the MCMC after the maximization
+
+        @param ndraws: number of draws in the MCMC (default: Ndraws=20000)
+
+        @param ndrawsdiscard: number of draws initially discarded to allow convergence
+                              in the in the MCMC (default=Ndraws/2)
+
+        @param mcmcconst: scaling constant for the MCMC (should be calibrated to achieve
+                          an acceptance rate of approx 25%) (default: MCMCconst=1)
+
+        @param mcmcfcast: False = does not generate forecasts when running the MCMC
+                          True = generates forecasts while running the MCMC
+                          (for each draw of the hyperparameters the code takes a
+                          draw of the VAR coefficients and shocks, and generates
+                          forecasts at horizons hz) (default).
+
+        @param mcmcstorecoef: False = does not store the MCMC draws of the VAR
+                              coefficients and residual covariance matrix
+                              True = stores the MCMC draws of the VAR coefficients and
+                              residual covariance matrix (default)
+
+        @param verbose: Prints relevant information during the estimation.
+
+        @param crit: precision for convergence criteria.
+
+        @param resample_method: 'full' only includes quarters that have all of its data available.
+                                'last' uses the last observation available for each quarter.
+        """
 
         assert data.index.inferred_freq == 'M', "input 'data' must be monthly and recognized by pandas."
 
@@ -1079,13 +1175,13 @@ class CRBVAR(object):
                                                                      aa2[n:, 0:n],
                                                                      rcond=None)[0]
             Lambda, PP = np.linalg.eig(kronmat)
-            PPinv = np.linalg.inv(PP)  # TODO this could be optimized
+            PPinv = np.linalg.inv(PP)  # this could be optimized
             invmat = np.kron(PP, PP) @ (np.kron(PPinv, PPinv) / (1 + np.kron(Lambda, Lambda)))
 
         else:
             kronmat = aa
             Lambda, PP = np.linalg.eig(kronmat)
-            PPinv = np.linalg.inv(PP)  # TODO this could be optimized
+            PPinv = np.linalg.inv(PP)  # this could be optimized
             invmat = np.kron(PP, PP) @ (np.kron(PPinv, PPinv) / (1 + np.kron(Lambda, Lambda) +
                                                                  np.kron(Lambda ** 2, Lambda ** 2)))
 
