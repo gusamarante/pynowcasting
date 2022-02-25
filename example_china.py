@@ -15,7 +15,7 @@ data_path = "C:/Users/gamarante/Dropbox/BWGI/Nowcast/china_data.xlsx"  # BW
 df_mf = pd.read_excel(data_path, index_col='Date', sheet_name='Data')
 df_mf = df_mf.resample('M').last()
 
-# Apply logs
+# ===== Apply logs =====
 var2log = ['Industrial Value Added (NSA)',
            'Buildings Sold (NSA)',
            'Consumer Confidence (NSA)',
@@ -24,7 +24,7 @@ var2log = ['Industrial Value Added (NSA)',
 for var in var2log:
     df_mf[var] = np.log(df_mf[var])
 
-# Seasonal adjustment
+# ===== Seasonal adjustment =====
 var2dessaz = ['Industrial Value Added (NSA)',
               'Buildings Sold (NSA)',
               'Consumer Confidence (NSA)']
@@ -35,8 +35,8 @@ for var in var2dessaz:
     df_mf[var] = x13results.seasadj
 
 
-bvar = CRBVAR(data=df_mf, lags=5, verbose=True, hz=24,
-              mnalpha=True, mnpsi=True, sur=True, noc=True, mcmc=0, fcast=0)
+bvar = CRBVAR(data=df_mf, lags=5, verbose=True, hz=24, mcmc=False, fcast=False,
+              mnalpha=True, mnpsi=True, sur=True, noc=True)
 
 # np.exp(df_mf['GDP (SA)']).plot(marker='o')
 # np.exp(bvar.smoothed_states['GDP (SA)']).plot()
@@ -52,11 +52,11 @@ forecasts_qoq = forecasts_qoq[forecasts_qoq.index > last_observed_gdp]
 print(forecasts_qoq)
 
 # Growth chart
-# np.exp(df_mf['GDP (SA)']).dropna().rolling(4).sum().pct_change(4).plot(marker='o')
-# forecasts.plot()
-# plt.show()
+np.exp(df_mf['GDP (SA)']).dropna().rolling(4).sum().pct_change(4).plot(marker='o')
+forecasts.plot()
+plt.show()
 
 # Growth QoQ chart
-np.exp(df_mf['GDP (SA)']).dropna().pct_change(1).plot(marker='o')
-forecasts_qoq.plot()
-plt.show()
+# np.exp(df_mf['GDP (SA)']).dropna().pct_change(1).plot(marker='o')
+# forecasts_qoq.plot()
+# plt.show()
